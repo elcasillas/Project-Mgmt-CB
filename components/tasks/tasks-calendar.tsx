@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   addMonths,
   eachDayOfInterval,
@@ -72,6 +72,7 @@ export function TasksCalendar({
   const pendingScrollDateKeyRef = useRef<string | null>(initialFocusDate ? initialAnchorDateKey : null);
   const topLoadLockedRef = useRef(false);
   const bottomLoadLockedRef = useRef(false);
+  const latestVisibleDateRef = useRef(initialFocusDate ?? initialAnchorDateKey);
 
   const tasksByDueDate = useMemo(() => {
     const groupedDays = new Map<string, Task[]>();
@@ -134,6 +135,7 @@ export function TasksCalendar({
   const weekdayLabels = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
   useEffect(() => {
+    latestVisibleDateRef.current = initialFocusDate ?? initialAnchorDateKey;
     setMonthRange({
       start: -INITIAL_PAST_MONTHS,
       end: INITIAL_FUTURE_MONTHS
@@ -144,7 +146,7 @@ export function TasksCalendar({
     pendingScrollDateKeyRef.current = initialFocusDate ? initialAnchorDateKey : null;
   }, [anchorMonth, initialAnchorDateKey, initialFocusDate]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     scrollRootRef.current = document.getElementById(APP_SCROLL_CONTAINER_ID);
   }, []);
 
@@ -180,7 +182,7 @@ export function TasksCalendar({
     return true;
   };
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (didRestoreInitialPositionRef.current) {
       return;
     }
@@ -191,12 +193,16 @@ export function TasksCalendar({
       return;
     }
 
+    // This restore runs once per Calendar entry/update so saves cannot drift the user
+    // back to January, the first rendered month, or any filter-controlled fallback.
     scrollSectionIntoView(targetMonthElement);
     didRestoreInitialPositionRef.current = true;
 
     if (pendingScrollDateKeyRef.current) {
+      const pendingDateKey = pendingScrollDateKeyRef.current;
       requestAnimationFrame(() => {
-        if (pendingScrollDateKeyRef.current && scrollDayIntoView(pendingScrollDateKeyRef.current, "auto")) {
+        if (pendingDateKey && scrollDayIntoView(pendingDateKey, "auto")) {
+          latestVisibleDateRef.current = pendingDateKey;
           pendingScrollDateKeyRef.current = null;
         }
       });
@@ -312,6 +318,7 @@ export function TasksCalendar({
         const monthKey = visibleEntries[0].target.getAttribute("data-month-key");
         if (monthKey) {
           setActiveMonthKey(monthKey);
+          latestVisibleDateRef.current = `${monthKey}-01`;
         }
       },
       {
@@ -358,7 +365,7 @@ export function TasksCalendar({
         task={task}
         initialMode="view"
         redirectPath={redirectPath}
-        calendarContextDate={task.due_date ?? task.start_date ?? format(activeMonth, "yyyy-MM-dd")}
+        calendarContextDate={task.due_date ?? task.start_date ?? latestVisibleDateRef.current}
         triggerVariant="ghost"
         triggerSize="sm"
         triggerAriaLabel={`Task Details for ${task.title}`}

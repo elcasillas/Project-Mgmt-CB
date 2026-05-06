@@ -41,6 +41,7 @@ export default async function CalendarPage({
         redirectPath="/calendar"
         showViewSwitcher={false}
         showCreateTask={false}
+        showFilters={false}
       />
     </div>
   );
