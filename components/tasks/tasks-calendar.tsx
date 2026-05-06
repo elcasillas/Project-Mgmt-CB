@@ -20,7 +20,6 @@ import { Card } from "@/components/ui/card";
 import { darkenColor, getContrastTextColor, getStatusTone } from "@/lib/utils/status-colors";
 import type { Profile, Project, Task } from "@/lib/types/domain";
 
-const CURRENT_MONTH = startOfMonth(new Date());
 const INITIAL_PAST_MONTHS = 4;
 const INITIAL_FUTURE_MONTHS = 8;
 const LOAD_MORE_MONTHS = 3;
@@ -32,6 +31,7 @@ export function TasksCalendar({
   projects,
   availableTasks = tasks,
   redirectPath,
+  initialFocusDate,
   title = "Calendar view",
   description = "Tasks grouped by due date in a standard monthly calendar."
 }: {
@@ -40,22 +40,36 @@ export function TasksCalendar({
   projects: Project[];
   availableTasks?: Task[];
   redirectPath?: string;
+  initialFocusDate?: string;
   title?: string;
   description?: string;
 }) {
+  const todayMonth = useMemo(() => startOfMonth(new Date()), []);
+  const initialAnchorDate = useMemo(() => {
+    if (!initialFocusDate) {
+      return new Date();
+    }
+
+    const parsed = new Date(`${initialFocusDate}T00:00:00`);
+    return Number.isNaN(parsed.getTime()) ? new Date() : parsed;
+  }, [initialFocusDate]);
+  const anchorMonth = useMemo(() => startOfMonth(initialAnchorDate), [initialAnchorDate]);
+  const initialAnchorDateKey = useMemo(() => format(initialAnchorDate, "yyyy-MM-dd"), [initialAnchorDate]);
   const [monthRange, setMonthRange] = useState({
     start: -INITIAL_PAST_MONTHS,
     end: INITIAL_FUTURE_MONTHS
   });
-  const [activeMonthKey, setActiveMonthKey] = useState(() => format(CURRENT_MONTH, "yyyy-MM"));
-  const didScrollToCurrentMonth = useRef(false);
+  const [activeMonthKey, setActiveMonthKey] = useState(() => format(anchorMonth, "yyyy-MM"));
+  const didRestoreInitialPositionRef = useRef(false);
   const monthRefs = useRef<Record<string, HTMLElement | null>>({});
+  const dayRefs = useRef<Record<string, HTMLElement | null>>({});
   const scrollRootRef = useRef<HTMLElement | null>(null);
   const topSentinelRef = useRef<HTMLDivElement | null>(null);
   const bottomSentinelRef = useRef<HTMLDivElement | null>(null);
   const calendarContainerRef = useRef<HTMLDivElement | null>(null);
   const prependAnchorRef = useRef<{ height: number; scrollTop: number } | null>(null);
   const pendingScrollMonthKeyRef = useRef<string | null>(null);
+  const pendingScrollDateKeyRef = useRef<string | null>(initialFocusDate ? initialAnchorDateKey : null);
   const topLoadLockedRef = useRef(false);
   const bottomLoadLockedRef = useRef(false);
 
@@ -78,7 +92,7 @@ export function TasksCalendar({
   const monthSections = useMemo(() => {
     return Array.from({ length: monthRange.end - monthRange.start + 1 }, (_, index) => {
       const offset = monthRange.start + index;
-      const month = addMonths(CURRENT_MONTH, offset);
+      const month = addMonths(anchorMonth, offset);
       const calendarDays = eachDayOfInterval({
         start: startOfWeek(startOfMonth(month), { weekStartsOn: 0 }),
         end: endOfWeek(endOfMonth(month), { weekStartsOn: 0 })
@@ -112,12 +126,23 @@ export function TasksCalendar({
         mobileAgenda: Array.from(mobileAgenda.entries())
       };
     });
-  }, [monthRange.end, monthRange.start, tasks]);
+  }, [anchorMonth, monthRange.end, monthRange.start, tasks]);
 
   const activeMonth = useMemo(() => {
-    return monthSections.find((section) => section.key === activeMonthKey)?.month ?? CURRENT_MONTH;
+    return monthSections.find((section) => section.key === activeMonthKey)?.month ?? anchorMonth;
   }, [activeMonthKey, monthSections]);
   const weekdayLabels = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+  useEffect(() => {
+    setMonthRange({
+      start: -INITIAL_PAST_MONTHS,
+      end: INITIAL_FUTURE_MONTHS
+    });
+    setActiveMonthKey(format(anchorMonth, "yyyy-MM"));
+    didRestoreInitialPositionRef.current = false;
+    pendingScrollMonthKeyRef.current = null;
+    pendingScrollDateKeyRef.current = initialFocusDate ? initialAnchorDateKey : null;
+  }, [anchorMonth, initialAnchorDateKey, initialFocusDate]);
 
   useEffect(() => {
     scrollRootRef.current = document.getElementById(APP_SCROLL_CONTAINER_ID);
@@ -136,19 +161,47 @@ export function TasksCalendar({
     scrollRoot.scrollTo({ top: Math.max(0, nextTop), behavior });
   };
 
+  const scrollDayIntoView = (dateKey: string, behavior: ScrollBehavior = "smooth") => {
+    const dayElement = dayRefs.current[dateKey];
+    if (!dayElement) {
+      return false;
+    }
+
+    const scrollRoot = scrollRootRef.current;
+    if (!scrollRoot) {
+      dayElement.scrollIntoView({ behavior, block: "center" });
+      return true;
+    }
+
+    const rootRect = scrollRoot.getBoundingClientRect();
+    const dayRect = dayElement.getBoundingClientRect();
+    const nextTop = scrollRoot.scrollTop + (dayRect.top - rootRect.top) - Math.max(24, rootRect.height * 0.2);
+    scrollRoot.scrollTo({ top: Math.max(0, nextTop), behavior });
+    return true;
+  };
+
   useEffect(() => {
-    if (didScrollToCurrentMonth.current) {
+    if (didRestoreInitialPositionRef.current) {
       return;
     }
 
-    const currentMonthElement = monthRefs.current[format(CURRENT_MONTH, "yyyy-MM")];
-    if (!currentMonthElement) {
+    const targetMonthKey = format(anchorMonth, "yyyy-MM");
+    const targetMonthElement = monthRefs.current[targetMonthKey];
+    if (!targetMonthElement) {
       return;
     }
 
-    scrollSectionIntoView(currentMonthElement);
-    didScrollToCurrentMonth.current = true;
-  }, [monthSections]);
+    scrollSectionIntoView(targetMonthElement);
+    didRestoreInitialPositionRef.current = true;
+
+    if (pendingScrollDateKeyRef.current) {
+      requestAnimationFrame(() => {
+        if (pendingScrollDateKeyRef.current && scrollDayIntoView(pendingScrollDateKeyRef.current, "auto")) {
+          pendingScrollDateKeyRef.current = null;
+        }
+      });
+    }
+  }, [anchorMonth, monthSections]);
 
   useEffect(() => {
     const topSentinel = topSentinelRef.current;
@@ -170,7 +223,7 @@ export function TasksCalendar({
             return;
           }
 
-          if (!didScrollToCurrentMonth.current) {
+          if (!didRestoreInitialPositionRef.current) {
             return;
           }
 
@@ -219,6 +272,13 @@ export function TasksCalendar({
       const targetSection = monthRefs.current[pendingMonthKey];
       if (targetSection) {
         scrollSectionIntoView(targetSection, "smooth");
+      }
+      if (pendingScrollDateKeyRef.current) {
+        requestAnimationFrame(() => {
+          if (pendingScrollDateKeyRef.current && scrollDayIntoView(pendingScrollDateKeyRef.current)) {
+            pendingScrollDateKeyRef.current = null;
+          }
+        });
       }
       pendingScrollMonthKeyRef.current = null;
       return;
@@ -275,7 +335,7 @@ export function TasksCalendar({
     }
 
     const monthOffset =
-      (month.getFullYear() - CURRENT_MONTH.getFullYear()) * 12 + (month.getMonth() - CURRENT_MONTH.getMonth());
+      (month.getFullYear() - anchorMonth.getFullYear()) * 12 + (month.getMonth() - anchorMonth.getMonth());
     pendingScrollMonthKeyRef.current = monthKey;
     setMonthRange((current) => ({
       start: Math.min(current.start, monthOffset),
@@ -298,6 +358,7 @@ export function TasksCalendar({
         task={task}
         initialMode="view"
         redirectPath={redirectPath}
+        calendarContextDate={task.due_date ?? task.start_date ?? format(activeMonth, "yyyy-MM-dd")}
         triggerVariant="ghost"
         triggerSize="sm"
         triggerAriaLabel={`Task Details for ${task.title}`}
@@ -339,7 +400,7 @@ export function TasksCalendar({
           <Button variant="secondary" size="sm" onClick={() => scrollToMonth(addMonths(activeMonth, 1))} aria-label="Next month">
             <ChevronRight className="h-4 w-4" />
           </Button>
-          <Button variant="secondary" size="sm" onClick={() => scrollToMonth(CURRENT_MONTH)}>
+          <Button variant="secondary" size="sm" onClick={() => scrollToMonth(todayMonth)}>
             Today
           </Button>
         </div>
@@ -363,7 +424,14 @@ export function TasksCalendar({
               {section.mobileAgenda.length ? (
                 section.mobileAgenda.map(([date, dayTasks]) => (
                   <div key={date} className="rounded-2xl border border-slate-100 bg-slate-50/70 p-4">
-                    <p className="text-sm font-semibold text-slate-900">{format(new Date(`${date}T00:00:00`), "EEEE, MMM d")}</p>
+                    <p
+                      ref={(element) => {
+                        dayRefs.current[date] = element;
+                      }}
+                      className="text-sm font-semibold text-slate-900"
+                    >
+                      {format(new Date(`${date}T00:00:00`), "EEEE, MMM d")}
+                    </p>
                     <div className="mt-3 space-y-2">{dayTasks.map((task) => renderTaskCard(task))}</div>
                   </div>
                 ))
@@ -394,6 +462,11 @@ export function TasksCalendar({
                         return (
                           <div
                             key={day.toISOString()}
+                            ref={(element) => {
+                              if (inVisibleMonth) {
+                                dayRefs.current[format(day, "yyyy-MM-dd")] = element;
+                              }
+                            }}
                             className={`min-h-[160px] border-b border-r border-slate-100 p-3 align-top ${
                               inVisibleMonth ? "bg-white" : "bg-slate-50/70"
                             }`}

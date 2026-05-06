@@ -6,7 +6,7 @@ import { getProjects, getTaskAttachments, getTasks, getTeamMembers } from "@/lib
 export default async function CalendarPage({
   searchParams
 }: {
-  searchParams: Promise<{ task?: string; error?: string; success?: string }>;
+  searchParams: Promise<{ task?: string; error?: string; success?: string; calendarDate?: string }>;
 }) {
   const params = await searchParams;
   const [tasks, projects, teamMembers] = await Promise.all([getTasks(), getProjects(), getTeamMembers()]);
@@ -36,6 +36,7 @@ export default async function CalendarPage({
         profiles={profiles}
         attachments={attachments}
         selectedTaskId={params.task}
+        initialCalendarDate={params.calendarDate}
         initialView="calendar"
         redirectPath="/calendar"
         showViewSwitcher={false}

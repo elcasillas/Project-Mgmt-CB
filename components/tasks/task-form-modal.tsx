@@ -82,7 +82,8 @@ export function TaskFormModal({
   triggerStyle,
   renderTrigger,
   initialMode,
-  redirectPath
+  redirectPath,
+  calendarContextDate
 }: {
   profiles: Profile[];
   projects: Project[];
@@ -106,6 +107,7 @@ export function TaskFormModal({
   }) => React.ReactNode;
   initialMode?: "view" | "edit";
   redirectPath?: string;
+  calendarContextDate?: string;
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -222,6 +224,28 @@ export function TaskFormModal({
       candidateTask.id.toLowerCase().includes(query)
     );
   });
+
+  const buildRedirectHref = (message: string, savedTask?: Task) => {
+    if (!redirectPath) {
+      return null;
+    }
+
+    const [pathname, search = ""] = redirectPath.split("?");
+    const params = new URLSearchParams(search);
+    params.set("success", message);
+
+    if (pathname === "/calendar") {
+      const calendarDate = savedTask?.due_date ?? savedTask?.start_date ?? calendarContextDate;
+      if (calendarDate) {
+        params.set("calendarDate", calendarDate);
+      } else {
+        params.delete("calendarDate");
+      }
+    }
+
+    const nextQuery = params.toString();
+    return `${pathname}${nextQuery ? `?${nextQuery}` : ""}` as Route;
+  };
 
   useEffect(() => {
     setPersistedTask(task);
@@ -716,8 +740,9 @@ export function TaskFormModal({
                         isDirty: false,
                         skip: true
                       });
-                      if (redirectPath) {
-                        router.push(`${redirectPath}?success=${encodeURIComponent(result.message)}` as Route);
+                      const nextRedirectHref = buildRedirectHref(result.message, result.task ?? activeTask);
+                      if (nextRedirectHref) {
+                        router.push(nextRedirectHref);
                       }
                       router.refresh();
                     } catch (saveError) {

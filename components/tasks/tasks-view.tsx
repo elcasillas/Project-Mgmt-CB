@@ -28,7 +28,8 @@ export function TasksView({
   showViewSwitcher = true,
   showCreateTask = true,
   canEditTasks = true,
-  redirectPath = "/tasks"
+  redirectPath = "/tasks",
+  initialCalendarDate
 }: {
   tasks: Task[];
   profiles: Profile[];
@@ -41,6 +42,7 @@ export function TasksView({
   showCreateTask?: boolean;
   canEditTasks?: boolean;
   redirectPath?: string;
+  initialCalendarDate?: string;
 }) {
   const [view, setView] = useState<ViewMode>(initialView);
   const [query, setQuery] = useState("");
@@ -145,7 +147,16 @@ export function TasksView({
 
       {view === "kanban" ? <TasksBoard tasks={filteredTasks} /> : null}
 
-      {view === "calendar" ? <TasksCalendar tasks={filteredTasks} profiles={profiles} projects={projects} availableTasks={tasks} redirectPath={redirectPath} /> : null}
+      {view === "calendar" ? (
+        <TasksCalendar
+          tasks={filteredTasks}
+          profiles={profiles}
+          projects={projects}
+          availableTasks={tasks}
+          redirectPath={redirectPath}
+          initialFocusDate={initialCalendarDate}
+        />
+      ) : null}
 
       {selectedTask ? (
         <div className="grid gap-6 xl:grid-cols-[1.15fr_1fr]">
