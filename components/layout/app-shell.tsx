@@ -21,9 +21,9 @@ export function AppShell({
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
   return (
-    <div className="min-h-screen overflow-x-hidden bg-[#f5f5f7] text-[#1d1d1f]">
+    <div className="h-screen overflow-hidden bg-[#f5f5f7] text-[#1d1d1f]">
       <Sidebar mobileOpen={mobileNavOpen} onClose={() => setMobileNavOpen(false)} />
-      <div className="flex min-h-screen min-w-0 flex-1 flex-col lg:pl-[272px]">
+      <div className="flex h-full min-w-0 flex-1 flex-col lg:pl-[272px]">
         <Header
           profile={profile}
           workspaceName={workspaceName}
@@ -31,7 +31,9 @@ export function AppShell({
           tasks={tasks}
           onOpenMobileNav={() => setMobileNavOpen(true)}
         />
-        <main className="min-w-0 flex-1 px-4 py-6 sm:px-6 sm:py-8 lg:px-10">{children}</main>
+        <main id="app-content-scroll" className="min-h-0 min-w-0 flex-1 overflow-y-auto px-4 py-6 sm:px-6 sm:py-8 lg:px-10">
+          {children}
+        </main>
       </div>
     </div>
   );

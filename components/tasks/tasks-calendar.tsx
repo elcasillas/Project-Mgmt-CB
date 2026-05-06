@@ -24,6 +24,7 @@ const CURRENT_MONTH = startOfMonth(new Date());
 const INITIAL_PAST_MONTHS = 4;
 const INITIAL_FUTURE_MONTHS = 8;
 const LOAD_MORE_MONTHS = 3;
+const APP_SCROLL_CONTAINER_ID = "app-content-scroll";
 
 export function TasksCalendar({
   tasks,
@@ -49,10 +50,11 @@ export function TasksCalendar({
   const [activeMonthKey, setActiveMonthKey] = useState(() => format(CURRENT_MONTH, "yyyy-MM"));
   const didScrollToCurrentMonth = useRef(false);
   const monthRefs = useRef<Record<string, HTMLElement | null>>({});
+  const scrollRootRef = useRef<HTMLElement | null>(null);
   const topSentinelRef = useRef<HTMLDivElement | null>(null);
   const bottomSentinelRef = useRef<HTMLDivElement | null>(null);
   const calendarContainerRef = useRef<HTMLDivElement | null>(null);
-  const prependAnchorRef = useRef<{ height: number; scrollY: number } | null>(null);
+  const prependAnchorRef = useRef<{ height: number; scrollTop: number } | null>(null);
   const pendingScrollMonthKeyRef = useRef<string | null>(null);
   const topLoadLockedRef = useRef(false);
   const bottomLoadLockedRef = useRef(false);
@@ -118,6 +120,23 @@ export function TasksCalendar({
   const weekdayLabels = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
   useEffect(() => {
+    scrollRootRef.current = document.getElementById(APP_SCROLL_CONTAINER_ID);
+  }, []);
+
+  const scrollSectionIntoView = (section: HTMLElement, behavior: ScrollBehavior = "auto") => {
+    const scrollRoot = scrollRootRef.current;
+    if (!scrollRoot) {
+      section.scrollIntoView({ behavior, block: "start" });
+      return;
+    }
+
+    const rootRect = scrollRoot.getBoundingClientRect();
+    const sectionRect = section.getBoundingClientRect();
+    const nextTop = scrollRoot.scrollTop + (sectionRect.top - rootRect.top) - 12;
+    scrollRoot.scrollTo({ top: Math.max(0, nextTop), behavior });
+  };
+
+  useEffect(() => {
     if (didScrollToCurrentMonth.current) {
       return;
     }
@@ -127,7 +146,7 @@ export function TasksCalendar({
       return;
     }
 
-    currentMonthElement.scrollIntoView({ block: "start" });
+    scrollSectionIntoView(currentMonthElement);
     didScrollToCurrentMonth.current = true;
   }, [monthSections]);
 
@@ -159,7 +178,7 @@ export function TasksCalendar({
             topLoadLockedRef.current = true;
             prependAnchorRef.current = {
               height: calendarContainerRef.current?.offsetHeight ?? 0,
-              scrollY: window.scrollY
+              scrollTop: scrollRootRef.current?.scrollTop ?? 0
             };
             setMonthRange((current) => ({
               start: current.start - LOAD_MORE_MONTHS,
@@ -177,7 +196,7 @@ export function TasksCalendar({
         });
       },
       {
-        root: null,
+        root: scrollRootRef.current,
         rootMargin: "400px 0px",
         threshold: 0
       }
@@ -199,7 +218,7 @@ export function TasksCalendar({
 
       const targetSection = monthRefs.current[pendingMonthKey];
       if (targetSection) {
-        targetSection.scrollIntoView({ behavior: "smooth", block: "start" });
+        scrollSectionIntoView(targetSection, "smooth");
       }
       pendingScrollMonthKeyRef.current = null;
       return;
@@ -207,8 +226,8 @@ export function TasksCalendar({
 
     const nextHeight = calendarContainerRef.current?.offsetHeight ?? 0;
     const heightDelta = nextHeight - anchor.height;
-    if (heightDelta !== 0) {
-      window.scrollTo({ top: anchor.scrollY + heightDelta });
+    if (heightDelta !== 0 && scrollRootRef.current) {
+      scrollRootRef.current.scrollTop = anchor.scrollTop + heightDelta;
     }
     prependAnchorRef.current = null;
   }, [monthSections]);
@@ -236,7 +255,7 @@ export function TasksCalendar({
         }
       },
       {
-        root: null,
+        root: scrollRootRef.current,
         rootMargin: "-15% 0px -55% 0px",
         threshold: [0.2, 0.4, 0.6]
       }
@@ -251,7 +270,7 @@ export function TasksCalendar({
     const monthKey = format(startOfMonth(month), "yyyy-MM");
     const section = monthRefs.current[monthKey];
     if (section) {
-      section.scrollIntoView({ behavior: "smooth", block: "start" });
+      scrollSectionIntoView(section, "smooth");
       return;
     }
 
@@ -336,7 +355,7 @@ export function TasksCalendar({
             }}
             className="space-y-4 rounded-[28px] border border-slate-100 bg-white/90 p-3 sm:p-4"
           >
-            <div className="sticky top-20 z-10 -mx-1 rounded-2xl bg-white/95 px-1 py-2 backdrop-blur">
+            <div className="sticky top-0 z-10 -mx-1 rounded-2xl bg-white/95 px-1 py-2 backdrop-blur">
               <h3 className="text-base font-semibold text-slate-950 sm:text-lg">{section.monthLabel}</h3>
             </div>
 
