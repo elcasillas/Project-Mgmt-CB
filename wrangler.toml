@@ -8,7 +8,7 @@ directory = ".open-next/assets"
 binding = "NEXT_ASSETS"
 
 [vars]
-NEXT_PUBLIC_APP_NAME = "Northstar PM"
+NEXT_PUBLIC_APP_NAME = "Casi Bros PM"
 
 [[d1_databases]]
 binding = "DB"

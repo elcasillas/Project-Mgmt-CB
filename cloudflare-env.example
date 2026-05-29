@@ -1,5 +1,5 @@
 # Cloudflare Worker/Page variables
-NEXT_PUBLIC_APP_NAME=Northstar PM
+NEXT_PUBLIC_APP_NAME=Casi Bros PM
 
 # Required Cloudflare bindings
 DB=Cloudflare D1 database binding configured in wrangler.toml
