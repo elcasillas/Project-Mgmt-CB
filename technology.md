@@ -1,173 +1,60 @@
 # Technology Stack
 
-## Overview
+Northstar PM is a Cloudflare-first project management application built with Next.js 15 App Router, strict TypeScript, Tailwind CSS v3, Cloudflare D1 SQLite, Cloudflare R2, and OpenNext for Cloudflare Workers.
 
+## Core Stack
 
+| Technology | Version / Target | Usage |
+|---|---:|---|
+| Next.js | 15.5.18 | App Router, layouts, route handlers, middleware, typed routes |
+| React | 18.3.1 | Server and client component rendering |
+| TypeScript | 5.9.3 strict mode | Static typing across app code, server actions, routes, and utilities |
+| Tailwind CSS | 3.4.19 | Primary styling system |
+| Cloudflare D1 | SQLite | Primary relational datastore through `env.DB` |
+| Cloudflare R2 | Worker binding | Project attachment storage and OpenNext incremental cache |
+| OpenNext for Cloudflare | 1.19.11 | Builds and adapts the Next.js app for Cloudflare Workers |
+| Wrangler | 4.95.0 | D1 migrations, local preview, deploys, and binding workflow |
+| React Hook Form | 7.76.1 | Form state and validation lifecycle |
+| Zod | 4.4.3 | Runtime validation schemas |
 
----
+## Data Layer
 
-## Languages
+- `lib/db.ts` exposes a thin D1 helper around `env.DB.prepare(...).bind(...).run/all/first`.
+- All server-side SQL uses parameter binding for values.
+- D1 migrations live in `migrations/`.
+- Local seed data lives in `seed/d1-local.sql`.
+- Attachments store metadata in D1 and file bytes in the `PROJECT_FILES` R2 binding.
 
-| Language | Version | Usage |
-|---|---|---|
-| TypeScript | 5.9.3 | All application code — pages, components, API routes, utilities |
-| SQL (PostgreSQL) | 15 (Supabase-managed) | Migrations, RPCs, triggers, RLS policies |
-| CSS | — | Tailwind utility classes + minimal global CSS (`app/globals.css`) |
+## Auth
 
-TypeScript config targets `ES2017`, strict mode enabled, `moduleResolution: bundler`.
+Authentication is D1-backed and Cloudflare-compatible:
 
----
+- `profiles.password_hash` stores a SHA-256 password hash for managed users.
+- `sessions` stores HTTP-only session ids and expiration timestamps.
+- `lib/auth/session.ts` resolves the current user from the `pm_session` cookie.
+- Middleware checks for the session cookie before protected routes; app layout validates the session against D1.
 
-## Frontend
+## Deployment
 
-| Technology | Version | Notes |
-|---|---|---|
-| React | 18.3.1 | UI rendering; server components (RSC) + client components |
-| Next.js | 15.5.12 | App Router; server-side rendering, route handlers, middleware |
-| Tailwind CSS | 3.4.19 | All styling — utility classes only, no custom CSS framework |
-| PostCSS | 8.5.6 | Tailwind processing pipeline |
-| Autoprefixer | 10.4.24 | Vendor prefix injection via PostCSS |
+- Production Worker service: `project-mgmt-cb`
+- Worker config: `wrangler.toml`
+- OpenNext config: `open-next.config.ts`
+- D1 binding: `DB`
+- Attachment R2 binding: `PROJECT_FILES`
 
-**UI approach:** No component library (no shadcn, Radix, MUI, etc.). All UI components are hand-built with Tailwind. Light theme (white/gray palette). No charting library — the pipeline bar chart on the Overview page is pure CSS/Tailwind.
+Primary scripts:
 
-**State management:** No Redux, Zustand, or Context API for global state. Each client component manages its own local `useState` with grouped state objects. Data flows from server components as typed props.
+- `npm run d1:create`
+- `npm run d1:migrations:apply:local`
+- `npm run d1:migrations:apply:production`
+- `npm run d1:seed:local`
+- `npm run cf:build`
+- `npm run cf:preview`
+- `npm run cf:deploy`
 
-**Routing:** Next.js App Router file-based routing. Path aliases configured as `@/*` → root.
+## Not In Use
 
----
-
-## Backend
-
-| Technology | Version | Notes |
-|---|---|---|
-| Next.js Route Handlers | 15.5.12 | Serverless API endpoints under `app/api/` |
-| Node.js | 24.13.1 (local) | Runtime for Next.js dev server and build |
-| Supabase JS SDK | 2.97.0 | Client for all DB queries, auth, and RPC calls |
-| @supabase/ssr | 0.5.2 | Cookie-based session management for Next.js SSR |
-
-**API routes** (`app/api/`):
-- `/api/admin/users` — user management (admin only)
-- `/api/admin/health-score-config` — health score config read/write + recalculate trigger
-- `/api/admin/inspection-config` — inspection check severity/enabled config (admin only)
-- `/api/admin/dc-cluster-mappings` — DC Location → Cluster ID mappings CRUD (admin only)
-- `/api/admin/partner-health-config` — partner health config read/write + recalculate (admin only)
-- `/api/deals/import` — CSV import with server-side parsing
-- `/api/deals/[id]/summarize` — AI deal summary generation and retrieval
-- `/api/deals/[id]/inspect` — 15-point deal inspection run and retrieval
-- `/api/deals/[id]/compose-email` — AI-generated targeted manager email
-- `/api/exchange-rate` — proxy to exchangerate.host; monthly in-process cache
-- `/api/partners` — partner list and creation
-- `/api/partners/[id]` — partner read/update/delete
-- `/api/partners/[id]/metrics` — partner metrics read/write
-- `/api/products/import` — products CSV import
-- `/api/invite` — Supabase invite email dispatch
-- `/auth/callback` — PKCE code exchange for invite links
-
-**Middleware** (`middleware.ts`): Runs on every non-static request. Refreshes session cookies via `@supabase/ssr`. Handles auth redirects (unauthenticated → `/login`, authenticated at `/login` → `/dashboard`).
-
-**No ORM.** All queries use the Supabase JS client's query builder (PostgREST-based) and named RPC calls directly.
-
----
-
-## Database / Storage
-
-| Technology | Version / Plan | Notes |
-|---|---|---|
-| PostgreSQL | 15 (Supabase-managed) | Primary datastore — all business data |
-| Supabase | Cloud (linked project) | Hosts Postgres, Auth, Storage, realtime |
-| Row Level Security (RLS) | — | Enforced on every table via Postgres policies |
-
-**Schema managed via:** `supabase/migrations/` — ordered SQL files, applied with `supabase db push`. 48 migrations to date.
-
-**Key tables:** `profiles`, `accounts`, `contacts`, `contact_roles`, `hid_records`, `contracts`, `deal_stages`, `deals`, `notes`, `deal_stage_history`, `deal_summary_cache`, `health_score_config`, `inspection_config`, `products`, `dc_cluster_mappings`, `partners`, `partner_metrics`, `partner_health_snapshots`, `partner_health_config`, `partner_ai_summaries`.
-
-**Key Postgres functions:**
-- `get_deals_page()` — main deals query RPC (joins 5 tables + lateral aggregation; includes `region`, `deal_type`)
-- `recompute_deal_health_score(deal_id)` — 6-component health score computation
-- `recompute_all_deal_health_scores()` — bulk recalculation
-- `get_partners_page()` — AHI list query RPC
-- `handle_new_user()` — trigger: creates `profiles` row on auth user creation
-- `is_admin()`, `can_view_account()` — RLS helper functions
-
-**Caching:** `deal_summary_cache` table caches AI-generated deal summaries keyed on SHA-256 hash of canonical note content + model tag. Exchange rates are cached monthly: in-process memory in the route handler (reset on cold start) and `localStorage` in the browser (`fw_fx_cache` key). No Redis cache.
-
-**File storage:** None. CSV files are parsed in memory within the import route handler and discarded — no file persistence.
-
-**Type generation:** `lib/supabase/database.types.ts` is auto-generated from the live schema via `supabase gen types typescript --linked`. Must be re-run after schema changes.
-
----
-
-## Infrastructure & DevOps
-
-| Service | Usage |
-|---|---|
-| Vercel | Hosting, serverless function execution, CDN, automatic HTTPS |
-| GitHub | Source control; `master` branch auto-deploys to Vercel via integration |
-| Supabase Cloud | Managed Postgres + Auth; migrations applied separately from deploys |
-| Supabase CLI | 2.75.0 — local development, migration management, type generation |
-
-**Deployment flow:**
-1. Push to `master` → Vercel auto-deploys frontend + API routes
-2. DB migrations applied independently: `supabase db push` (does not run on Vercel deploy)
-
-**Environment config:** `.env.local` for local dev. Production env vars set in Vercel project dashboard. See `.env.local.example` for the full list (Supabase keys, OpenRouter, Slack team ID, exchangerate.host API key).
-
-**Build constraints:** `node_modules` are Windows-native. `npm run build` and `npm run lint` must be run from a Windows terminal, not WSL. `supabase` CLI commands work from WSL.
-
-**No Docker.** No containerization in development or production.
-
-**No CI pipeline** (GitHub Actions, CircleCI, etc.). Quality gate is `npm run build` passing locally before merge.
-
----
-
-## External Services & Integrations
-
-| Service | Purpose | Auth Method |
-|---|---|---|
-| Supabase Auth | Email/password authentication, invite emails, PKCE flow | Built into Supabase SDK |
-| OpenRouter | AI deal summaries, 15-point inspection, manager email generation | `Authorization: Bearer` header (`OPENROUTER_API_KEY`) |
-| Anthropic Claude (via OpenRouter) | LLM for summaries, inspection checks, email drafts | Accessed through OpenRouter; model: `anthropic/claude-haiku-4-5` (override via `OPENROUTER_MODEL`) |
-| exchangerate.host | CAD conversion rates for Financial Worksheet | `EXCHANGERATE_API_KEY`; proxied via `/api/exchange-rate` (never exposed to browser) |
-| Slack | Deep-link to user profiles (`slack://user?team=...`) | No API calls; `NEXT_PUBLIC_SLACK_TEAM_ID` env var only |
-| Vercel | Build, deploy, CDN | GitHub integration + `vercel` CLI |
-
-**OpenRouter integration detail:** `POST https://openrouter.ai/api/v1/chat/completions`. Model configurable via `OPENROUTER_MODEL` env var. Summary responses cached in `deal_summary_cache` table; cache busted by changing the `MODEL_TAG` constant in the summarize route. Claude models via OpenRouter do not support `response_format: { type: 'json_object' }` — JSON is extracted from markdown-fenced responses using an `extractJSON()` helper.
-
-**exchangerate.host integration detail:** `GET http://api.exchangerate.host/live` — USD-based quotes. Rate to CAD is derived as `USDCAD / USDx`. Monthly cache: in-process variable in the route handler (resets on Vercel cold start) + `localStorage` in the browser (`fw_fx_cache`). Falls back to stale localStorage cache if the API is unreachable.
-
-**No analytics, no error tracking** (no Sentry, Datadog, PostHog, etc.) currently integrated.
-
----
-
-## Development Tools
-
-| Tool | Version | Purpose |
-|---|---|---|
-| ESLint | 8.57.1 | Linting — configured via `eslint-config-next` |
-| eslint-config-next | 15.5.12 | Next.js-specific lint rules (React, accessibility, etc.) |
-| TypeScript compiler | 5.9.3 | Type checking (`tsc --noEmit` via `next build`) |
-| Supabase CLI | 2.75.0 | Migration management, type generation, local DB |
-| `npx serve` | — | Serves `tests/` directory on port 8423 for browser-based tests |
-
-**No Prettier.** No formatter configured.
-
-**No Jest/Vitest.** The `tests/` directory contains a browser-based fixture/integration test harness served by `npx serve`. No unit test runner.
-
-**No Husky/lint-staged.** No pre-commit hooks configured.
-
----
-
-## Key Dependencies
-
-| Package | Version | Purpose |
-|---|---|---|
-| `next` | 15.5.12 | Full-stack React framework — App Router, server components, route handlers, middleware |
-| `react` / `react-dom` | 18.3.1 | UI rendering — server and client components |
-| `@supabase/supabase-js` | 2.97.0 | Supabase client — DB queries (PostgREST), auth, RPC calls |
-| `@supabase/ssr` | 0.5.2 | Cookie-based Supabase session management for Next.js SSR/middleware |
-| `typescript` | 5.9.3 | Static typing across entire codebase |
-| `tailwindcss` | 3.4.19 | Utility-first CSS framework — all UI styling |
-| `postcss` | 8.5.6 | CSS processing pipeline (required by Tailwind) |
-| `autoprefixer` | 10.4.24 | Adds vendor prefixes to generated CSS |
-| `eslint` | 8.57.1 | Code linting |
-| `eslint-config-next` | 15.5.12 | Next.js ESLint ruleset |
+- External backend client libraries
+- Prisma or another ORM
+- Dedicated global state library
+- Container-based local development

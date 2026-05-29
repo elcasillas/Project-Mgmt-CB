@@ -1,21 +1,14 @@
 import type { NextConfig } from "next";
-import path from "path";
+import { PHASE_DEVELOPMENT_SERVER } from "next/constants";
 
-const supabaseHost = process.env.NEXT_PUBLIC_SUPABASE_URL ? new URL(process.env.NEXT_PUBLIC_SUPABASE_URL).hostname : null;
-
-const nextConfig: NextConfig = {
-  typedRoutes: true,
-  outputFileTracingRoot: path.join(__dirname),
-  images: {
-    remotePatterns: supabaseHost
-      ? [
-          {
-            protocol: "https",
-            hostname: supabaseHost
-          }
-        ]
-      : []
+const nextConfig = async (phase: string): Promise<NextConfig> => {
+  if (phase === PHASE_DEVELOPMENT_SERVER) {
+    await import("@opennextjs/cloudflare").then((cloudflare) => cloudflare.initOpenNextCloudflareForDev());
   }
+
+  return {
+    typedRoutes: true
+  };
 };
 
 export default nextConfig;

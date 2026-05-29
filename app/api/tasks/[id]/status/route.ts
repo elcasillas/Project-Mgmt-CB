@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
+import { requireCurrentUser } from "@/lib/auth/session";
+import { first, logActivity, now, refreshProjectProgress, run } from "@/lib/db";
 import { TASK_PRIORITIES, TASK_STATUSES } from "@/lib/data/constants";
-import { createClient } from "@/lib/supabase/server";
 import type { TaskPriority, TaskStatus } from "@/lib/types/domain";
 
 type QuickUpdateField = "status" | "priority";
@@ -26,15 +27,7 @@ function parseTaskUpdate(payload: unknown): { field: "status"; value: TaskStatus
 }
 
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
-  const supabase = await createClient();
-  const {
-    data: { user }
-  } = await supabase.auth.getUser();
-
-  if (!user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
+  const user = await requireCurrentUser();
   const { id } = await params;
   const update = parseTaskUpdate(await request.json());
 
@@ -42,18 +35,23 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     return NextResponse.json({ error: "Invalid task update." }, { status: 400 });
   }
 
-  const { error } = await supabase.from("tasks").update({ [update.field]: update.value }).eq("id", id);
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 400 });
+  const task = await first<{ project_id: string | null }>(`SELECT project_id FROM tasks WHERE id = ?`, id);
+  if (update.field === "status") {
+    await run(`UPDATE tasks SET status = ?, updated_at = ? WHERE id = ?`, update.value, now(), id);
+  } else {
+    await run(`UPDATE tasks SET priority = ?, updated_at = ? WHERE id = ?`, update.value, now(), id);
   }
-
-  await supabase.rpc("log_activity", {
-    p_user_id: user.id,
-    p_entity_type: "task",
-    p_entity_id: id,
-    p_action: update.field === "status" ? "task_status_changed" : "task_priority_changed",
-    p_metadata: { [update.field]: update.value }
+  await logActivity({
+    userId: user.id,
+    entityType: "task",
+    entityId: id,
+    action: update.field === "status" ? "task_status_changed" : "task_priority_changed",
+    metadata: { [update.field]: update.value }
   });
+
+  if (update.field === "status") {
+    await refreshProjectProgress(task?.project_id);
+  }
 
   return NextResponse.json({ ok: true });
 }

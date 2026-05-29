@@ -22,7 +22,15 @@ export default async function ForgotPasswordPage({
       <form action={forgotPasswordAction} className="space-y-5">
         <input type="hidden" name="origin" value={origin} />
         <FormField label="Email" htmlFor="email">
-          <Input id="email" name="email" type="email" required placeholder="you@company.com" />
+          <Input
+            id="email"
+            name="email"
+            type="email"
+            required
+            placeholder="you@company.com"
+            autoComplete="email"
+            data-lpignore="true"
+          />
         </FormField>
         {params.error ? <p className="rounded-2xl bg-rose-50 px-4 py-3 text-sm text-rose-700">{params.error}</p> : null}
         {params.message ? <p className="rounded-2xl bg-emerald-50 px-4 py-3 text-sm text-emerald-700">{params.message}</p> : null}

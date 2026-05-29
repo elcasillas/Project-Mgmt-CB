@@ -1,4 +1,5 @@
 import type { Task, TaskPurchaseItem } from "@/lib/types/domain";
+import { mapProfile } from "@/lib/auth/session";
 
 export const TASK_WITH_RELATIONS_SELECT = `
   *,
@@ -29,8 +30,16 @@ export function normalizeTaskPurchaseItems(value: unknown): TaskPurchaseItem[] {
 }
 
 export function mapTaskRecord(row: any): Task {
-  const rawPurchaseItems =
-    Array.isArray(row.purchase_items) ? row.purchase_items : Array.isArray(row.purchaseItems) ? row.purchaseItems : [];
+  let rawPurchaseItems: unknown = [];
+  if (typeof row.purchase_items === "string") {
+    try {
+      rawPurchaseItems = JSON.parse(row.purchase_items || "[]");
+    } catch {
+      rawPurchaseItems = [];
+    }
+  } else if (Array.isArray(row.purchase_items)) {
+    rawPurchaseItems = row.purchase_items;
+  }
 
   return {
     id: row.id,
@@ -46,38 +55,8 @@ export function mapTaskRecord(row: any): Task {
     estimated_hours: row.estimated_hours,
     created_at: row.created_at,
     updated_at: row.updated_at,
-    assignee: row.assignee
-      ? {
-          id: row.assignee.id,
-          first_name: row.assignee.first_name ?? "",
-          last_name: row.assignee.last_name ?? "",
-          full_name: row.assignee.full_name,
-          email: row.assignee.email,
-          role: row.assignee.role,
-          status: row.assignee.status ?? "Active",
-          avatar_url: row.assignee.avatar_url,
-          created_at: row.assignee.created_at,
-          updated_at: row.assignee.updated_at,
-          last_active_at: row.assignee.last_active_at ?? null,
-          deleted_at: row.assignee.deleted_at ?? null
-        }
-      : null,
-    reporter: row.reporter
-      ? {
-          id: row.reporter.id,
-          first_name: row.reporter.first_name ?? "",
-          last_name: row.reporter.last_name ?? "",
-          full_name: row.reporter.full_name,
-          email: row.reporter.email,
-          role: row.reporter.role,
-          status: row.reporter.status ?? "Active",
-          avatar_url: row.reporter.avatar_url,
-          created_at: row.reporter.created_at,
-          updated_at: row.reporter.updated_at,
-          last_active_at: row.reporter.last_active_at ?? null,
-          deleted_at: row.reporter.deleted_at ?? null
-        }
-      : null,
+    assignee: row.assignee_id_full_name ? mapProfile(profileFromPrefix(row, "assignee")) : null,
+    reporter: row.reporter_id_full_name ? mapProfile(profileFromPrefix(row, "reporter")) : null,
     project: row.projects
       ? {
           id: row.projects.id,
@@ -87,9 +66,24 @@ export function mapTaskRecord(row: any): Task {
           progress: row.projects.progress
         }
       : null,
-    dependency_ids: Array.isArray(row.task_dependencies)
-      ? row.task_dependencies.map((entry: any) => entry.depends_on_task_id)
-      : [],
+    dependency_ids: typeof row.dependency_ids === "string" && row.dependency_ids ? row.dependency_ids.split(",").filter(Boolean) : [],
     purchaseItems: normalizeTaskPurchaseItems(rawPurchaseItems)
+  };
+}
+
+function profileFromPrefix(row: any, prefix: "assignee" | "reporter") {
+  return {
+    id: row[`${prefix}_id_value`],
+    first_name: row[`${prefix}_first_name`],
+    last_name: row[`${prefix}_last_name`],
+    full_name: row[`${prefix}_id_full_name`],
+    email: row[`${prefix}_email`],
+    role: row[`${prefix}_role`],
+    status: row[`${prefix}_status`],
+    avatar_url: row[`${prefix}_avatar_url`],
+    created_at: row[`${prefix}_created_at`],
+    updated_at: row[`${prefix}_updated_at`],
+    last_active_at: row[`${prefix}_last_active_at`],
+    deleted_at: row[`${prefix}_deleted_at`]
   };
 }

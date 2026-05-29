@@ -1,27 +1,27 @@
 import { NextRequest, NextResponse } from "next/server";
-import { updateSession } from "@/lib/supabase/middleware";
+import { hasSessionCookie } from "@/lib/auth/session";
 
 const PUBLIC_PATHS = ["/login", "/signup", "/forgot-password"];
 
 export async function middleware(request: NextRequest) {
-  const { response, user } = await updateSession(request);
   const pathname = request.nextUrl.pathname;
   const isPublic = PUBLIC_PATHS.some((path) => pathname.startsWith(path));
   const isAuthCallback = pathname.startsWith("/auth");
+  const hasSession = hasSessionCookie(request);
 
-  if (!user && !isPublic && !isAuthCallback) {
+  if (!hasSession && !isPublic && !isAuthCallback) {
     const url = request.nextUrl.clone();
     url.pathname = "/login";
     return NextResponse.redirect(url);
   }
 
-  if (user && isPublic) {
+  if (hasSession && isPublic) {
     const url = request.nextUrl.clone();
     url.pathname = "/dashboard";
     return NextResponse.redirect(url);
   }
 
-  return response;
+  return NextResponse.next();
 }
 
 export const config = {

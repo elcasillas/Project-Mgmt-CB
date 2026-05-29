@@ -131,7 +131,7 @@ export function TasksCalendar({
 
   const activeMonth = useMemo(() => {
     return monthSections.find((section) => section.key === activeMonthKey)?.month ?? anchorMonth;
-  }, [activeMonthKey, monthSections]);
+  }, [activeMonthKey, anchorMonth, monthSections]);
   const weekdayLabels = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
   useEffect(() => {

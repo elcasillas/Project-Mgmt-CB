@@ -23,7 +23,7 @@ export default function GlobalError({
         <div className="max-w-xl rounded-2xl border border-gray-200 bg-white p-10">
           <p className="text-xs font-semibold uppercase tracking-[0.24em] text-rose-600">Application Error</p>
           <h1 className="mt-4 text-3xl font-semibold tracking-tight text-slate-950">A server-side error occurred while loading the application.</h1>
-          <p className="mt-3 text-sm text-slate-600">Check the Vercel runtime logs for the query scope and error details.</p>
+          <p className="mt-3 text-sm text-slate-600">Check the Cloudflare Worker logs for the query scope and error details.</p>
           {error.digest ? <p className="mt-4 text-sm font-medium text-slate-700">Digest: {error.digest}</p> : null}
           <button
             type="button"

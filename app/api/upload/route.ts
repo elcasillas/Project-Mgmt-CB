@@ -1,14 +1,13 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+import { requireCurrentUser } from "@/lib/auth/session";
+import { getProjectFilesBucket, id, now, run } from "@/lib/db";
 
 export async function POST(request: Request) {
-  const supabase = await createClient();
-  const {
-    data: { user }
-  } = await supabase.auth.getUser();
+  const user = await requireCurrentUser();
+  const bucket = await getProjectFilesBucket();
 
-  if (!user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (!bucket) {
+    return NextResponse.json({ error: "PROJECT_FILES R2 binding is not configured." }, { status: 500 });
   }
 
   const formData = await request.formData();
@@ -21,31 +20,35 @@ export async function POST(request: Request) {
   }
 
   const filePath = `${user.id}/${Date.now()}-${file.name}`;
-  const buffer = Buffer.from(await file.arrayBuffer());
-  const { error: uploadError } = await supabase.storage.from("attachments").upload(filePath, buffer, {
-    contentType: file.type,
-    upsert: false
+  await bucket.put(filePath, await file.arrayBuffer(), {
+    httpMetadata: {
+      contentType: file.type || "application/octet-stream"
+    }
   });
 
-  if (uploadError) {
-    return NextResponse.json({ error: uploadError.message }, { status: 400 });
-  }
+  const attachmentId = id();
+  const timestamp = now();
+  await run(
+    `INSERT INTO attachments (id, project_id, task_id, file_name, file_path, uploaded_by, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    attachmentId,
+    projectId,
+    taskId,
+    file.name,
+    filePath,
+    user.id,
+    timestamp
+  );
 
-  const { data, error } = await supabase
-    .from("attachments")
-    .insert({
+  return NextResponse.json({
+    data: {
+      id: attachmentId,
       project_id: projectId,
       task_id: taskId,
       file_name: file.name,
       file_path: filePath,
-      uploaded_by: user.id
-    })
-    .select("*")
-    .single();
-
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 400 });
-  }
-
-  return NextResponse.json({ data });
+      uploaded_by: user.id,
+      created_at: timestamp
+    }
+  });
 }

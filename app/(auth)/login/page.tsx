@@ -20,10 +20,26 @@ export default async function LoginPage({
     >
       <form action={loginAction} className="space-y-5">
         <FormField label="Email" htmlFor="email">
-          <Input id="email" name="email" type="email" required placeholder="you@company.com" />
+          <Input
+            id="email"
+            name="email"
+            type="email"
+            required
+            placeholder="you@company.com"
+            autoComplete="username"
+            data-lpignore="true"
+          />
         </FormField>
         <FormField label="Password" htmlFor="password">
-          <Input id="password" name="password" type="password" required placeholder="Enter your password" />
+          <Input
+            id="password"
+            name="password"
+            type="password"
+            required
+            placeholder="Enter your password"
+            autoComplete="current-password"
+            data-lpignore="true"
+          />
         </FormField>
         {params.error ? <p className="rounded-2xl bg-rose-50 px-4 py-3 text-sm text-rose-700">{params.error}</p> : null}
         {params.message ? <p className="rounded-2xl bg-emerald-50 px-4 py-3 text-sm text-emerald-700">{params.message}</p> : null}

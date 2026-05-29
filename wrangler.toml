@@ -1,0 +1,32 @@
+name = "project-mgmt-cb"
+main = ".open-next/worker.js"
+compatibility_date = "2026-05-29"
+compatibility_flags = ["nodejs_compat", "global_fetch_strictly_public"]
+
+[assets]
+directory = ".open-next/assets"
+binding = "NEXT_ASSETS"
+
+[vars]
+NEXT_PUBLIC_APP_NAME = "Northstar PM"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "project-mgmt-cb"
+database_id = "71fef34a-12ca-4d29-9f07-6228b20e063f"
+migrations_dir = "migrations"
+
+[[services]]
+binding = "WORKER_SELF_REFERENCE"
+service = "project-mgmt-cb"
+
+[[r2_buckets]]
+binding = "NEXT_INC_CACHE_R2_BUCKET"
+bucket_name = "project-mgmt-cb-opennext-cache"
+
+[[r2_buckets]]
+binding = "PROJECT_FILES"
+bucket_name = "project-mgmt-cb-files"
+
+[images]
+binding = "IMAGES"

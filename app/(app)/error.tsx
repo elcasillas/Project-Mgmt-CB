@@ -24,7 +24,7 @@ export default function AppError({
         <p className="text-xs font-semibold uppercase tracking-[0.24em] text-rose-600">Workspace Error</p>
         <h1 className="mt-4 text-3xl font-semibold tracking-tight text-slate-950">A server-side error occurred while loading this workspace view.</h1>
         {error.digest ? <p className="mt-3 text-sm text-slate-600">Digest: {error.digest}</p> : null}
-        <p className="mt-3 text-sm text-slate-600">Vercel logs will now include the failing query scope under the `[queries]` prefix.</p>
+        <p className="mt-3 text-sm text-slate-600">Cloudflare Worker logs will include the failing query scope under the `[queries]` prefix.</p>
         <Button className="mt-6" onClick={reset}>
           Retry
         </Button>

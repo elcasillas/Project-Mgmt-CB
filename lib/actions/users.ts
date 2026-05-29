@@ -1,9 +1,8 @@
 "use server";
+
 import { revalidatePath } from "next/cache";
-import type { User } from "@supabase/supabase-js";
-import { createAdminClient } from "@/lib/supabase/admin";
-import { buildProfilePayload } from "@/lib/supabase/profiles";
-import { createClient } from "@/lib/supabase/server";
+import { hashPassword, requireCurrentUser } from "@/lib/auth/session";
+import { first, id, now, run } from "@/lib/db";
 import type { UserRole, UserStatus } from "@/lib/types/domain";
 
 function validateEmail(email: string) {
@@ -15,85 +14,22 @@ function validatePassword(password: string) {
 }
 
 async function requireAdmin() {
-  const supabase = await createClient();
-  const {
-    data: { user }
-  } = await supabase.auth.getUser();
-
-  if (!user) {
-    return { ok: false as const, message: "You must be signed in." };
-  }
-
-  const { data: profile } = await supabase.from("profiles").select("id, role").eq("id", user.id).single();
-  if (!profile || profile.role !== "Admin") {
+  const user = await requireCurrentUser();
+  if (user.role !== "Admin") {
     return { ok: false as const, message: "Only admins can manage users." };
   }
-
   return { ok: true as const, userId: user.id };
 }
 
-async function getActiveAdminCount(adminClient: ReturnType<typeof createAdminClient>) {
-  const { count } = await adminClient
-    .from("profiles")
-    .select("id", { count: "exact", head: true })
-    .eq("role", "Admin")
-    .eq("status", "Active")
-    .is("deleted_at", null);
-
-  return count ?? 0;
-}
-
-async function upsertManagedProfile(
-  adminClient: ReturnType<typeof createAdminClient>,
-  user: Pick<User, "id" | "email" | "user_metadata">,
-  input: { firstName: string; lastName: string; role: UserRole; status: UserStatus; last_active_at: string | null }
-) {
-  const base = buildProfilePayload(user as User);
-  const fullName = `${input.firstName} ${input.lastName}`.trim();
-
-  const { error } = await adminClient.from("profiles").upsert(
-    {
-      ...base,
-      first_name: input.firstName,
-      last_name: input.lastName,
-      full_name: fullName,
-      email: user.email ?? "",
-      role: input.role,
-      status: input.status,
-      last_active_at: input.last_active_at,
-      deleted_at: null
-    },
-    { onConflict: "id" }
+async function getActiveAdminCount() {
+  const row = await first<{ count: number }>(
+    `SELECT COUNT(*) AS count
+     FROM profiles
+     WHERE role = 'Admin'
+       AND status = 'Active'
+       AND deleted_at IS NULL`
   );
-
-  if (error) {
-    throw error;
-  }
-}
-
-async function findAuthUserByEmail(adminClient: ReturnType<typeof createAdminClient>, email: string) {
-  let page = 1;
-
-  while (page <= 10) {
-    const { data, error } = await adminClient.auth.admin.listUsers({ page, perPage: 200 });
-
-    if (error) {
-      throw error;
-    }
-
-    const matchedUser = data.users.find((user) => user.email?.toLowerCase() === email.toLowerCase());
-    if (matchedUser) {
-      return matchedUser;
-    }
-
-    if (data.users.length < 200) {
-      break;
-    }
-
-    page += 1;
-  }
-
-  return null;
+  return row?.count ?? 0;
 }
 
 export async function saveUserAction(input: {
@@ -112,6 +48,7 @@ export async function saveUserAction(input: {
 
   const firstName = input.first_name.trim();
   const lastName = input.last_name.trim();
+  const fullName = `${firstName} ${lastName}`.trim();
   const email = input.email.trim().toLowerCase();
   const password = input.password?.trim() ?? "";
 
@@ -128,155 +65,82 @@ export async function saveUserAction(input: {
   }
 
   if (password && !validatePassword(password)) {
-    return {
-      ok: false as const,
-      message: "Password must be at least 8 characters and include uppercase, lowercase, and a number."
-    };
+    return { ok: false as const, message: "Password must be at least 8 characters and include uppercase, lowercase, and a number." };
   }
 
-  const adminClient = createAdminClient();
-  const { data: duplicate } = await adminClient
-    .from("profiles")
-    .select("id")
-    .eq("email", email)
-    .is("deleted_at", null)
-    .neq("id", input.id ?? "00000000-0000-0000-0000-000000000000")
-    .maybeSingle();
+  const duplicate = await first<{ id: string }>(
+    `SELECT id
+     FROM profiles
+     WHERE lower(email) = ?
+       AND deleted_at IS NULL
+       AND id != ?`,
+    email,
+    input.id ?? ""
+  );
 
   if (duplicate) {
     return { ok: false as const, message: "A user with that email already exists." };
   }
 
-  if (input.id) {
-    const { data: existing } = await adminClient.from("profiles").select("role, status").eq("id", input.id).single();
-    const activeAdminCount = await getActiveAdminCount(adminClient);
+  const timestamp = now();
 
-    if (
-      existing?.role === "Admin" &&
-      activeAdminCount <= 1 &&
-      (input.role !== "Admin" || input.status !== "Active")
-    ) {
+  if (input.id) {
+    const existing = await first<{ role: UserRole; status: UserStatus }>(`SELECT role, status FROM profiles WHERE id = ?`, input.id);
+    const activeAdminCount = await getActiveAdminCount();
+    if (existing?.role === "Admin" && activeAdminCount <= 1 && (input.role !== "Admin" || input.status !== "Active")) {
       return { ok: false as const, message: "You cannot demote or deactivate the last remaining admin." };
     }
 
-    const fullName = `${firstName} ${lastName}`.trim();
-    const { error: authError } = await adminClient.auth.admin.updateUserById(input.id, {
-      email,
-      ...(password ? { password } : {}),
-      user_metadata: {
-        first_name: firstName,
-        last_name: lastName,
-        full_name: fullName,
-        role: input.role,
-        status: input.status
-      }
-    });
-
-    if (authError) {
-      return { ok: false as const, message: authError.message };
-    }
-
-    try {
-      await upsertManagedProfile(
-        adminClient,
-        {
-          id: input.id,
-          email,
-          user_metadata: {
-            first_name: firstName,
-            last_name: lastName,
-            full_name: fullName,
-            role: input.role,
-            status: input.status
-          }
-        },
-        {
-          firstName,
-          lastName,
-          role: input.role,
-          status: input.status,
-          last_active_at: null
-        }
+    const passwordHash = password ? await hashPassword(password) : null;
+    if (passwordHash) {
+      await run(
+        `UPDATE profiles
+         SET first_name = ?, last_name = ?, full_name = ?, email = ?, role = ?, status = ?, password_hash = ?, deleted_at = NULL, updated_at = ?
+         WHERE id = ?`,
+        firstName,
+        lastName,
+        fullName,
+        email,
+        input.role,
+        input.status,
+        passwordHash,
+        timestamp,
+        input.id
       );
-    } catch (profileError) {
-      return { ok: false as const, message: profileError instanceof Error ? profileError.message : "Unable to update profile." };
+    } else {
+      await run(
+        `UPDATE profiles
+         SET first_name = ?, last_name = ?, full_name = ?, email = ?, role = ?, status = ?, deleted_at = NULL, updated_at = ?
+         WHERE id = ?`,
+        firstName,
+        lastName,
+        fullName,
+        email,
+        input.role,
+        input.status,
+        timestamp,
+        input.id
+      );
     }
 
     revalidatePath("/users");
     return { ok: true as const, message: "User updated." };
   }
 
-  const fullName = `${firstName} ${lastName}`.trim();
-  const { data: createdUser, error: createError } = await adminClient.auth.admin.createUser({
+  await run(
+    `INSERT INTO profiles (id, first_name, last_name, full_name, email, password_hash, role, status, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    id(),
+    firstName,
+    lastName,
+    fullName,
     email,
-    password,
-    email_confirm: true,
-    user_metadata: {
-      first_name: firstName,
-      last_name: lastName,
-      full_name: fullName,
-      role: input.role,
-      status: input.status
-    }
-  });
-
-  const createdAuthUser = createdUser.user;
-
-  if (createError || !createdAuthUser) {
-    if (createError?.message?.toLowerCase().includes("already been registered")) {
-      try {
-        const existingAuthUser = await findAuthUserByEmail(adminClient, email);
-
-        if (existingAuthUser) {
-          const { error: authUpdateError } = await adminClient.auth.admin.updateUserById(existingAuthUser.id, {
-            email,
-            ...(password ? { password } : {}),
-            user_metadata: {
-              first_name: firstName,
-              last_name: lastName,
-              full_name: fullName,
-              role: input.role,
-              status: input.status
-            }
-          });
-
-          if (authUpdateError) {
-            return { ok: false as const, message: authUpdateError.message };
-          }
-
-          await upsertManagedProfile(adminClient, existingAuthUser, {
-            firstName,
-            lastName,
-            role: input.role,
-            status: input.status,
-            last_active_at: null
-          });
-
-          revalidatePath("/users");
-          return { ok: true as const, message: "Existing auth user recovered and added to the directory." };
-        }
-      } catch (recoveryError) {
-        return {
-          ok: false as const,
-          message: recoveryError instanceof Error ? recoveryError.message : "Unable to recover existing user."
-        };
-      }
-    }
-
-    return { ok: false as const, message: createError?.message || "Unable to create user." };
-  }
-
-  try {
-    await upsertManagedProfile(adminClient, createdAuthUser, {
-      firstName,
-      lastName,
-      role: input.role,
-      status: input.status,
-      last_active_at: null
-    });
-  } catch (profileError) {
-    return { ok: false as const, message: profileError instanceof Error ? profileError.message : "Unable to create profile." };
-  }
+    await hashPassword(password),
+    input.role,
+    input.status,
+    timestamp,
+    timestamp
+  );
 
   revalidatePath("/users");
   return { ok: true as const, message: "User created." };
@@ -292,33 +156,18 @@ export async function removeUserAction(input: { id: string }) {
     return { ok: false as const, message: "You cannot remove your own account." };
   }
 
-  const adminClient = createAdminClient();
-  const { data: profile } = await adminClient
-    .from("profiles")
-    .select("id, role, full_name")
-    .eq("id", input.id)
-    .single();
-
+  const profile = await first<{ id: string; role: UserRole; full_name: string }>(`SELECT id, role, full_name FROM profiles WHERE id = ?`, input.id);
   if (!profile) {
     return { ok: false as const, message: "User not found." };
   }
 
-  const activeAdminCount = await getActiveAdminCount(adminClient);
+  const activeAdminCount = await getActiveAdminCount();
   if (profile.role === "Admin" && activeAdminCount <= 1) {
     return { ok: false as const, message: "You cannot remove the last remaining admin." };
   }
 
-  const { error } = await adminClient
-    .from("profiles")
-    .update({
-      status: "Inactive",
-      deleted_at: new Date().toISOString()
-    })
-    .eq("id", input.id);
-
-  if (error) {
-    return { ok: false as const, message: error.message };
-  }
+  await run(`UPDATE profiles SET status = 'Inactive', deleted_at = ?, updated_at = ? WHERE id = ?`, now(), now(), input.id);
+  await run(`DELETE FROM sessions WHERE user_id = ?`, input.id);
 
   revalidatePath("/users");
   return { ok: true as const, message: `${profile.full_name} has been deactivated and removed from active views.` };

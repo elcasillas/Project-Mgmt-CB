@@ -5,30 +5,44 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
+    "cf:build": "opennextjs-cloudflare build",
+    "cf:preview": "opennextjs-cloudflare preview",
+    "cf:deploy": "opennextjs-cloudflare deploy",
+    "cf:pages:deploy": "wrangler pages deploy .open-next/assets --project-name project-mgmt-cb",
+    "d1:create": "wrangler d1 create project-mgmt-cb",
+    "d1:migrations:apply:local": "wrangler d1 migrations apply project-mgmt-cb --local",
+    "d1:migrations:apply:production": "wrangler d1 migrations apply project-mgmt-cb --remote",
+    "d1:seed:local": "wrangler d1 execute project-mgmt-cb --local --file seed/d1-local.sql",
+    "build:worker": "npm run cf:build",
+    "preview:worker": "npm run cf:preview",
+    "deploy:worker": "npm run cf:deploy",
     "start": "next start",
     "lint": "eslint . --ext .js,.jsx,.ts,.tsx",
     "type-check": "tsc --noEmit"
   },
   "dependencies": {
-    "@supabase/ssr": "0.5.2",
-    "@supabase/supabase-js": "2.97.0",
     "clsx": "^2.1.1",
     "date-fns": "^4.1.0",
     "lucide-react": "^0.511.0",
-    "next": "15.5.15",
+    "next": "^15.5.18",
     "react": "18.3.1",
     "react-dom": "18.3.1",
-    "tailwind-merge": "^3.3.1"
+    "react-hook-form": "^7.76.1",
+    "tailwind-merge": "^3.3.1",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@cloudflare/workers-types": "^4.20260529.1",
+    "@opennextjs/cloudflare": "^1.19.11",
     "@types/node": "^24.6.0",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
     "autoprefixer": "10.4.24",
     "eslint": "8.57.1",
-    "eslint-config-next": "15.5.15",
+    "eslint-config-next": "^15.5.18",
     "postcss": "8.5.6",
     "tailwindcss": "3.4.19",
-    "typescript": "5.9.3"
+    "typescript": "5.9.3",
+    "wrangler": "^4.95.0"
   }
 }

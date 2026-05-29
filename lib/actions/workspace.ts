@@ -2,8 +2,9 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { mapTaskRecord, normalizeTaskPurchaseItems, TASK_WITH_RELATIONS_SELECT } from "@/lib/data/task-record";
-import { createClient } from "@/lib/supabase/server";
+import { requireCurrentUser } from "@/lib/auth/session";
+import { first, getProjectFilesBucket, id, logActivity, now, refreshProjectProgress, run } from "@/lib/db";
+import { mapTaskRecord, normalizeTaskPurchaseItems } from "@/lib/data/task-record";
 
 function splitCsv(value: string) {
   return value
@@ -24,35 +25,20 @@ function parseTaskPurchaseItems(value: FormDataEntryValue | null) {
   }
 }
 
-async function requireViewer() {
-  const supabase = await createClient();
-  const {
-    data: { user }
-  } = await supabase.auth.getUser();
-
-  if (!user) {
-    redirect("/login");
-  }
-
-  return { supabase, user };
-}
-
 async function getCurrentUserRole() {
-  const { supabase, user } = await requireViewer();
-  const { data: profile } = await supabase.from("profiles").select("role").eq("id", user.id).single();
-  return { supabase, user, role: profile?.role ?? "Team Member" };
+  const user = await requireCurrentUser();
+  return { user, role: user.role };
 }
 
 export async function saveProjectAction(formData: FormData) {
-  const { supabase, user, role } = await getCurrentUserRole();
+  const { user, role } = await getCurrentUserRole();
   if (role !== "Admin" && role !== "Project Manager") {
-    return {
-      ok: false,
-      message: "Only Admins and Managers can create or edit projects."
-    };
+    return { ok: false, message: "Only Admins and Managers can create or edit projects." };
   }
 
   const projectId = String(formData.get("id") || "");
+  const savedProjectId = projectId || id();
+  const timestamp = now();
   const payload = {
     name: String(formData.get("name") || ""),
     description: String(formData.get("description") || "") || null,
@@ -64,75 +50,71 @@ export async function saveProjectAction(formData: FormData) {
     notes: String(formData.get("notes") || "") || null
   };
 
-  let savedProjectId = projectId;
-
   if (projectId) {
-    const { error } = await supabase.from("projects").update(payload).eq("id", projectId);
-    if (error) {
-      return { ok: false, message: error.message };
-    }
-    await supabase.rpc("log_activity", {
-      p_user_id: user.id,
-      p_entity_type: "project",
-      p_entity_id: projectId,
-      p_action: "project_updated",
-      p_metadata: { projectName: payload.name }
-    });
+    await run(
+      `UPDATE projects
+       SET name = ?, description = ?, owner_id = ?, status = ?, priority = ?, start_date = ?, target_end_date = ?, notes = ?, updated_at = ?
+       WHERE id = ?`,
+      payload.name,
+      payload.description,
+      payload.owner_id,
+      payload.status,
+      payload.priority,
+      payload.start_date,
+      payload.target_end_date,
+      payload.notes,
+      timestamp,
+      projectId
+    );
+    await logActivity({ userId: user.id, entityType: "project", entityId: projectId, action: "project_updated", metadata: { projectName: payload.name } });
   } else {
-    const { data, error } = await supabase.from("projects").insert(payload).select("id").single();
-    if (error || !data) {
-      return { ok: false, message: error?.message || "Unable to create project" };
-    }
-    savedProjectId = data.id;
-    await supabase.rpc("log_activity", {
-      p_user_id: user.id,
-      p_entity_type: "project",
-      p_entity_id: savedProjectId,
-      p_action: "project_created",
-      p_metadata: { projectName: payload.name }
-    });
+    await run(
+      `INSERT INTO projects (id, name, description, owner_id, status, priority, start_date, target_end_date, notes, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      savedProjectId,
+      payload.name,
+      payload.description,
+      payload.owner_id,
+      payload.status,
+      payload.priority,
+      payload.start_date,
+      payload.target_end_date,
+      payload.notes,
+      timestamp,
+      timestamp
+    );
+    await logActivity({ userId: user.id, entityType: "project", entityId: savedProjectId, action: "project_created", metadata: { projectName: payload.name } });
   }
 
   const memberIds = splitCsv(String(formData.get("team_members") || ""));
-  if (savedProjectId) {
-    await supabase.from("project_members").delete().eq("project_id", savedProjectId);
-    const uniqueMemberIds = Array.from(new Set([payload.owner_id, ...memberIds]));
-    if (uniqueMemberIds.length) {
-      await supabase.from("project_members").insert(uniqueMemberIds.map((memberId) => ({ project_id: savedProjectId, user_id: memberId })));
-    }
+  await run(`DELETE FROM project_members WHERE project_id = ?`, savedProjectId);
+  const uniqueMemberIds = Array.from(new Set([payload.owner_id, ...memberIds]));
+  for (const memberId of uniqueMemberIds) {
+    await run(
+      `INSERT OR IGNORE INTO project_members (id, project_id, user_id, created_at)
+       VALUES (?, ?, ?, ?)`,
+      id(),
+      savedProjectId,
+      memberId,
+      timestamp
+    );
   }
 
   revalidatePath("/dashboard");
   revalidatePath("/projects");
-  if (savedProjectId) {
-    revalidatePath(`/projects/${savedProjectId}`);
-  }
-  return {
-    ok: true,
-    message: projectId ? "Project updated." : "Project created."
-  };
+  revalidatePath(`/projects/${savedProjectId}`);
+  return { ok: true, message: projectId ? "Project updated." : "Project created." };
 }
 
 export async function archiveProjectAction(formData: FormData) {
-  const { supabase, user, role } = await getCurrentUserRole();
+  const { user, role } = await getCurrentUserRole();
   if (role !== "Admin" && role !== "Project Manager") {
     redirect("/projects?error=Only+Admins+and+Managers+can+archive+projects.");
   }
 
   const projectId = String(formData.get("project_id") || "");
-
-  const { error } = await supabase.from("projects").update({ archived: true }).eq("id", projectId);
-  if (error) {
-    redirect(`/projects?error=${encodeURIComponent(error.message)}`);
-  }
-
-  await supabase.rpc("log_activity", {
-    p_user_id: user.id,
-    p_entity_type: "project",
-    p_entity_id: projectId,
-    p_action: "project_archived",
-    p_metadata: {}
-  });
+  await run(`UPDATE projects SET archived = 1, updated_at = ? WHERE id = ?`, now(), projectId);
+  await logActivity({ userId: user.id, entityType: "project", entityId: projectId, action: "project_archived" });
 
   revalidatePath("/projects");
   revalidatePath("/dashboard");
@@ -140,13 +122,11 @@ export async function archiveProjectAction(formData: FormData) {
 }
 
 export async function saveTaskAction(formData: FormData) {
-  const { supabase, user } = await requireViewer();
+  const user = await requireCurrentUser();
   const taskId = String(formData.get("id") || "");
-  const rawPurchaseItems = formData.get("purchase_items");
-  const purchaseItems = parseTaskPurchaseItems(rawPurchaseItems);
-  if (process.env.NODE_ENV !== "production") {
-    console.info("[saveTaskAction] purchaseItems before save", { taskId, rawPurchaseItems, purchaseItems });
-  }
+  const savedTaskId = taskId || id();
+  const timestamp = now();
+  const purchaseItems = parseTaskPurchaseItems(formData.get("purchase_items"));
   const payload = {
     project_id: String(formData.get("project_id") || "") || null,
     title: String(formData.get("title") || ""),
@@ -158,143 +138,118 @@ export async function saveTaskAction(formData: FormData) {
     start_date: String(formData.get("start_date") || "") || null,
     due_date: String(formData.get("due_date") || "") || null,
     estimated_hours: Number(formData.get("estimated_hours") || 0) || null,
-    purchase_items: purchaseItems
+    purchase_items: JSON.stringify(purchaseItems)
   };
 
-  let savedTaskId = taskId;
+  const previous = taskId ? await first<{ project_id: string | null }>(`SELECT project_id FROM tasks WHERE id = ?`, taskId) : null;
 
   if (taskId) {
-    const { error } = await supabase.from("tasks").update(payload).eq("id", taskId);
-    if (error) {
-      return { ok: false, message: error.message };
-    }
-    await supabase.rpc("log_activity", {
-      p_user_id: user.id,
-      p_entity_type: "task",
-      p_entity_id: taskId,
-      p_action: "task_updated",
-      p_metadata: { title: payload.title, status: payload.status }
-    });
+    await run(
+      `UPDATE tasks
+       SET project_id = ?, title = ?, description = ?, status = ?, priority = ?, assignee_id = ?, reporter_id = ?, start_date = ?, due_date = ?, estimated_hours = ?, purchase_items = ?, updated_at = ?
+       WHERE id = ?`,
+      payload.project_id,
+      payload.title,
+      payload.description,
+      payload.status,
+      payload.priority,
+      payload.assignee_id,
+      payload.reporter_id,
+      payload.start_date,
+      payload.due_date,
+      payload.estimated_hours,
+      payload.purchase_items,
+      timestamp,
+      taskId
+    );
+    await logActivity({ userId: user.id, entityType: "task", entityId: taskId, action: "task_updated", metadata: { title: payload.title, status: payload.status } });
   } else {
-    const { data, error } = await supabase.from("tasks").insert(payload).select("id").single();
-    if (error || !data) {
-      return { ok: false, message: error?.message || "Unable to create task" };
-    }
-    savedTaskId = data.id;
-    await supabase.rpc("log_activity", {
-      p_user_id: user.id,
-      p_entity_type: "task",
-      p_entity_id: savedTaskId,
-      p_action: "task_created",
-      p_metadata: { title: payload.title }
-    });
+    await run(
+      `INSERT INTO tasks (id, project_id, title, description, status, priority, assignee_id, reporter_id, start_date, due_date, estimated_hours, purchase_items, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      savedTaskId,
+      payload.project_id,
+      payload.title,
+      payload.description,
+      payload.status,
+      payload.priority,
+      payload.assignee_id,
+      payload.reporter_id,
+      payload.start_date,
+      payload.due_date,
+      payload.estimated_hours,
+      payload.purchase_items,
+      timestamp,
+      timestamp
+    );
+    await logActivity({ userId: user.id, entityType: "task", entityId: savedTaskId, action: "task_created", metadata: { title: payload.title } });
   }
 
   const dependencyIds = splitCsv(String(formData.get("dependency_ids") || ""));
-  if (savedTaskId) {
-    await supabase.from("task_dependencies").delete().eq("task_id", savedTaskId);
-    if (dependencyIds.length) {
-      await supabase
-        .from("task_dependencies")
-        .insert(dependencyIds.map((dependsOnTaskId) => ({ task_id: savedTaskId, depends_on_task_id: dependsOnTaskId })));
-    }
+  await run(`DELETE FROM task_dependencies WHERE task_id = ?`, savedTaskId);
+  for (const dependsOnTaskId of dependencyIds) {
+    await run(
+      `INSERT OR IGNORE INTO task_dependencies (id, task_id, depends_on_task_id)
+       VALUES (?, ?, ?)`,
+      id(),
+      savedTaskId,
+      dependsOnTaskId
+    );
   }
 
-  const { data: savedTaskRow, error: savedTaskError } = await supabase
-    .from("tasks")
-    .select(TASK_WITH_RELATIONS_SELECT)
-    .eq("id", savedTaskId)
-    .single();
-
-  let savedTask = null;
-  if (savedTaskError || !savedTaskRow) {
-    if (process.env.NODE_ENV !== "production") {
-      console.error("[saveTaskAction] reload after save failed", {
-        taskId: savedTaskId,
-        payload,
-        savedTaskError
-      });
-    }
-  } else {
-    savedTask = mapTaskRecord(savedTaskRow);
-    if (process.env.NODE_ENV !== "production") {
-      console.info("[saveTaskAction] saved task after reload", { taskId: savedTaskId, payload, savedTaskRow, savedTask });
-    }
+  await refreshProjectProgress(payload.project_id);
+  if (previous?.project_id && previous.project_id !== payload.project_id) {
+    await refreshProjectProgress(previous.project_id);
   }
+
+  const savedTaskRow = await first<any>(`SELECT * FROM tasks WHERE id = ?`, savedTaskId);
+  const savedTask = savedTaskRow ? mapTaskRecord(savedTaskRow) : null;
 
   revalidatePath("/dashboard");
   revalidatePath("/tasks");
+  revalidatePath("/calendar");
   if (payload.project_id) {
     revalidatePath(`/projects/${payload.project_id}`);
   }
-  return {
-    ok: true,
-    message: taskId ? "Task updated." : "Task created.",
-    task: savedTask
-  };
+  return { ok: true, message: taskId ? "Task updated." : "Task created.", task: savedTask };
 }
 
 export async function updateTaskStatusAction(formData: FormData) {
-  const { supabase, user } = await requireViewer();
+  const user = await requireCurrentUser();
   const taskId = String(formData.get("task_id") || "");
   const status = String(formData.get("status") || "");
+  const task = await first<{ project_id: string | null }>(`SELECT project_id FROM tasks WHERE id = ?`, taskId);
 
-  const { error } = await supabase.from("tasks").update({ status }).eq("id", taskId);
-  if (error) {
-    redirect(`/tasks?error=${encodeURIComponent(error.message)}`);
-  }
-
-  await supabase.rpc("log_activity", {
-    p_user_id: user.id,
-    p_entity_type: "task",
-    p_entity_id: taskId,
-    p_action: "task_status_changed",
-    p_metadata: { status }
-  });
+  await run(`UPDATE tasks SET status = ?, updated_at = ? WHERE id = ?`, status, now(), taskId);
+  await logActivity({ userId: user.id, entityType: "task", entityId: taskId, action: "task_status_changed", metadata: { status } });
+  await refreshProjectProgress(task?.project_id);
 
   revalidatePath("/tasks");
+  revalidatePath("/calendar");
   revalidatePath("/dashboard");
 }
 
 export async function deleteTaskAction(formData: FormData) {
-  const { supabase, user } = await requireViewer();
+  const user = await requireCurrentUser();
   const taskId = String(formData.get("task_id") || "");
-
-  const { error } = await supabase.from("tasks").delete().eq("id", taskId);
-  if (error) {
-    redirect(`/tasks?error=${encodeURIComponent(error.message)}`);
-  }
-
-  await supabase.rpc("log_activity", {
-    p_user_id: user.id,
-    p_entity_type: "task",
-    p_entity_id: taskId,
-    p_action: "task_deleted",
-    p_metadata: {}
-  });
+  const task = await first<{ project_id: string | null }>(`SELECT project_id FROM tasks WHERE id = ?`, taskId);
+  await run(`DELETE FROM tasks WHERE id = ?`, taskId);
+  await logActivity({ userId: user.id, entityType: "task", entityId: taskId, action: "task_deleted" });
+  await refreshProjectProgress(task?.project_id);
 
   revalidatePath("/tasks");
+  revalidatePath("/calendar");
   revalidatePath("/dashboard");
 }
 
 export async function addCommentAction(formData: FormData) {
-  const { supabase, user } = await requireViewer();
+  const user = await requireCurrentUser();
   const taskId = String(formData.get("task_id") || "");
   const projectId = String(formData.get("project_id") || "");
   const body = String(formData.get("body") || "");
 
-  const { error } = await supabase.from("comments").insert({ task_id: taskId, user_id: user.id, body });
-  if (error) {
-    redirect(`/tasks?error=${encodeURIComponent(error.message)}`);
-  }
-
-  await supabase.rpc("log_activity", {
-    p_user_id: user.id,
-    p_entity_type: "task",
-    p_entity_id: taskId,
-    p_action: "comment_added",
-    p_metadata: { body }
-  });
+  await run(`INSERT INTO comments (id, task_id, user_id, body, created_at) VALUES (?, ?, ?, ?, ?)`, id(), taskId, user.id, body, now());
+  await logActivity({ userId: user.id, entityType: "task", entityId: taskId, action: "comment_added", metadata: { body } });
 
   revalidatePath("/tasks");
   if (projectId) {
@@ -303,20 +258,17 @@ export async function addCommentAction(formData: FormData) {
 }
 
 export async function deleteAttachmentAction(formData: FormData) {
-  const { supabase } = await requireViewer();
+  await requireCurrentUser();
   const attachmentId = String(formData.get("attachment_id") || "");
   const filePath = String(formData.get("file_path") || "");
   const projectId = String(formData.get("project_id") || "");
+  const bucket = await getProjectFilesBucket();
 
-  if (filePath) {
-    await supabase.storage.from("attachments").remove([filePath]);
+  if (bucket && filePath) {
+    await bucket.delete(filePath);
   }
 
-  const { error } = await supabase.from("attachments").delete().eq("id", attachmentId);
-  if (error) {
-    redirect(`/tasks?error=${encodeURIComponent(error.message)}`);
-  }
-
+  await run(`DELETE FROM attachments WHERE id = ?`, attachmentId);
   revalidatePath("/tasks");
   if (projectId) {
     revalidatePath(`/projects/${projectId}`);
@@ -324,37 +276,32 @@ export async function deleteAttachmentAction(formData: FormData) {
 }
 
 export async function updateProfileAction(formData: FormData) {
-  const { supabase, user } = await requireViewer();
+  const user = await requireCurrentUser();
   const fullName = String(formData.get("full_name") || "");
   const avatarUrl = String(formData.get("avatar_url") || "") || null;
-
-  const { error } = await supabase.from("profiles").update({ full_name: fullName, avatar_url: avatarUrl }).eq("id", user.id);
-  if (error) {
-    redirect(`/settings?error=${encodeURIComponent(error.message)}`);
-  }
-
+  await run(`UPDATE profiles SET full_name = ?, avatar_url = ?, updated_at = ? WHERE id = ?`, fullName, avatarUrl, now(), user.id);
   revalidatePath("/settings");
   revalidatePath("/dashboard");
 }
 
 export async function updateWorkspaceSettingsAction(formData: FormData) {
-  const { supabase } = await requireViewer();
-  const payload = {
-    workspace_name: String(formData.get("workspace_name") || "Northstar PM"),
-    default_project_status: String(formData.get("default_project_status") || "Planning"),
-    default_project_priority: String(formData.get("default_project_priority") || "Medium"),
-    notifications_enabled: String(formData.get("notifications_enabled") || "off") === "on"
-  };
-
-  const { data: current } = await supabase.from("workspace_settings").select("id").single();
+  await requireCurrentUser();
+  const current = await first<{ id: string }>(`SELECT id FROM workspace_settings ORDER BY created_at LIMIT 1`);
   if (!current?.id) {
     redirect("/settings?error=Workspace settings record not found.");
   }
 
-  const { error } = await supabase.from("workspace_settings").update(payload).eq("id", current.id);
-  if (error) {
-    redirect(`/settings?error=${encodeURIComponent(error.message)}`);
-  }
+  await run(
+    `UPDATE workspace_settings
+     SET workspace_name = ?, default_project_status = ?, default_project_priority = ?, notifications_enabled = ?, updated_at = ?
+     WHERE id = ?`,
+    String(formData.get("workspace_name") || "Northstar PM"),
+    String(formData.get("default_project_status") || "Planning"),
+    String(formData.get("default_project_priority") || "Medium"),
+    String(formData.get("notifications_enabled") || "off") === "on" ? 1 : 0,
+    now(),
+    current.id
+  );
 
   revalidatePath("/settings");
   revalidatePath("/dashboard");
