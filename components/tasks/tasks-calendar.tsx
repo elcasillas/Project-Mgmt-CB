@@ -2,6 +2,7 @@
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
+  addDays,
   addMonths,
   eachDayOfInterval,
   endOfMonth,
@@ -23,7 +24,8 @@ import type { Profile, Project, Task } from "@/lib/types/domain";
 const INITIAL_PAST_MONTHS = 4;
 const INITIAL_FUTURE_MONTHS = 8;
 const LOAD_MORE_MONTHS = 3;
-const APP_SCROLL_CONTAINER_ID = "app-content-scroll";
+const WHEEL_NAVIGATION_THRESHOLD = 24;
+const WHEEL_NAVIGATION_LOCK_MS = 520;
 
 export function TasksCalendar({
   tasks,
@@ -59,20 +61,11 @@ export function TasksCalendar({
     start: -INITIAL_PAST_MONTHS,
     end: INITIAL_FUTURE_MONTHS
   });
-  const [activeMonthKey, setActiveMonthKey] = useState(() => format(anchorMonth, "yyyy-MM"));
-  const didRestoreInitialPositionRef = useRef(false);
-  const monthRefs = useRef<Record<string, HTMLElement | null>>({});
+  const [activeMonth, setActiveMonth] = useState(anchorMonth);
   const dayRefs = useRef<Record<string, HTMLElement | null>>({});
-  const scrollRootRef = useRef<HTMLElement | null>(null);
-  const leftSentinelRef = useRef<HTMLDivElement | null>(null);
-  const rightSentinelRef = useRef<HTMLDivElement | null>(null);
-  const calendarContainerRef = useRef<HTMLDivElement | null>(null);
-  const horizontalScrollRef = useRef<HTMLDivElement | null>(null);
-  const prependAnchorRef = useRef<{ width: number; scrollLeft: number } | null>(null);
-  const pendingScrollMonthKeyRef = useRef<string | null>(null);
   const pendingScrollDateKeyRef = useRef<string | null>(initialFocusDate ? initialAnchorDateKey : null);
-  const leftLoadLockedRef = useRef(false);
-  const rightLoadLockedRef = useRef(false);
+  const wheelLockRef = useRef(false);
+  const wheelLockTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const latestVisibleDateRef = useRef(initialFocusDate ?? initialAnchorDateKey);
 
   const tasksByDueDate = useMemo(() => {
@@ -99,6 +92,11 @@ export function TasksCalendar({
         start: startOfWeek(startOfMonth(month), { weekStartsOn: 0 }),
         end: endOfWeek(endOfMonth(month), { weekStartsOn: 0 })
       });
+
+      while (calendarDays.length < 42) {
+        calendarDays.push(addDays(calendarDays[calendarDays.length - 1], 1));
+      }
+
       const weeks: Date[][] = [];
 
       for (let dayIndex = 0; dayIndex < calendarDays.length; dayIndex += 7) {
@@ -130,9 +128,14 @@ export function TasksCalendar({
     });
   }, [anchorMonth, monthRange.end, monthRange.start, tasks]);
 
-  const activeMonth = useMemo(() => {
-    return monthSections.find((section) => section.key === activeMonthKey)?.month ?? anchorMonth;
-  }, [activeMonthKey, anchorMonth, monthSections]);
+  const activeMonthKey = useMemo(() => format(activeMonth, "yyyy-MM"), [activeMonth]);
+  const activeMonthIndex = useMemo(() => {
+    const index = monthSections.findIndex((section) => section.key === activeMonthKey);
+    return Math.max(0, index);
+  }, [activeMonthKey, monthSections]);
+  const monthTrackWidth = `${monthSections.length * 100}%`;
+  const monthSlideWidth = `${100 / Math.max(1, monthSections.length)}%`;
+  const monthTrackOffset = `${activeMonthIndex * (100 / Math.max(1, monthSections.length))}%`;
   const weekdayLabels = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
   useEffect(() => {
@@ -141,235 +144,83 @@ export function TasksCalendar({
       start: -INITIAL_PAST_MONTHS,
       end: INITIAL_FUTURE_MONTHS
     });
-    setActiveMonthKey(format(anchorMonth, "yyyy-MM"));
-    didRestoreInitialPositionRef.current = false;
-    pendingScrollMonthKeyRef.current = null;
+    setActiveMonth(anchorMonth);
     pendingScrollDateKeyRef.current = initialFocusDate ? initialAnchorDateKey : null;
   }, [anchorMonth, initialAnchorDateKey, initialFocusDate]);
 
-  useLayoutEffect(() => {
-    scrollRootRef.current = document.getElementById(APP_SCROLL_CONTAINER_ID);
-  }, []);
-
-  const scrollSectionIntoView = (section: HTMLElement, behavior: ScrollBehavior = "auto") => {
-    const scrollContainer = horizontalScrollRef.current;
-    if (!scrollContainer) {
-      section.scrollIntoView({ behavior, block: "nearest", inline: "start" });
-      return;
-    }
-
-    const rootRect = scrollContainer.getBoundingClientRect();
-    const sectionRect = section.getBoundingClientRect();
-    const nextLeft = scrollContainer.scrollLeft + (sectionRect.left - rootRect.left) - 12;
-    scrollContainer.scrollTo({ left: Math.max(0, nextLeft), behavior });
-  };
-
-  const scrollDayIntoView = (dateKey: string, behavior: ScrollBehavior = "smooth") => {
+  const focusDay = (dateKey: string) => {
     const dayElement = dayRefs.current[dateKey];
     if (!dayElement) {
       return false;
     }
 
-    const scrollContainer = horizontalScrollRef.current;
-    if (!scrollContainer) {
-      dayElement.scrollIntoView({ behavior, block: "nearest", inline: "center" });
-      return true;
-    }
-
-    const rootRect = scrollContainer.getBoundingClientRect();
-    const dayRect = dayElement.getBoundingClientRect();
-    const nextLeft = scrollContainer.scrollLeft + (dayRect.left - rootRect.left) - Math.max(24, rootRect.width * 0.2);
-    scrollContainer.scrollTo({ left: Math.max(0, nextLeft), behavior });
+    dayElement.focus({ preventScroll: true });
     return true;
   };
 
   useLayoutEffect(() => {
-    if (didRestoreInitialPositionRef.current) {
-      return;
-    }
-
-    const targetMonthKey = format(anchorMonth, "yyyy-MM");
-    const targetMonthElement = monthRefs.current[targetMonthKey];
-    if (!targetMonthElement) {
-      return;
-    }
-
-    // This restore runs once per Calendar entry/update so saves cannot drift the user
-    // back to January, the first rendered month, or any filter-controlled fallback.
-    scrollSectionIntoView(targetMonthElement);
-    didRestoreInitialPositionRef.current = true;
-
     if (pendingScrollDateKeyRef.current) {
       const pendingDateKey = pendingScrollDateKeyRef.current;
       requestAnimationFrame(() => {
-        if (pendingDateKey && scrollDayIntoView(pendingDateKey, "auto")) {
+        if (pendingDateKey && focusDay(pendingDateKey)) {
           latestVisibleDateRef.current = pendingDateKey;
           pendingScrollDateKeyRef.current = null;
         }
       });
     }
-  }, [anchorMonth, monthSections]);
+  }, [activeMonthKey, monthSections]);
 
   useEffect(() => {
-    const scrollContainer = horizontalScrollRef.current;
-    const leftSentinel = leftSentinelRef.current;
-    const rightSentinel = rightSentinelRef.current;
-    if (!scrollContainer || !leftSentinel || !rightSentinel) {
-      return;
-    }
-
-    const observer = new IntersectionObserver(
-      (entries) => {
-        entries.forEach((entry) => {
-          if (!entry.isIntersecting) {
-            if (entry.target === leftSentinel) {
-              leftLoadLockedRef.current = false;
-            }
-            if (entry.target === rightSentinel) {
-              rightLoadLockedRef.current = false;
-            }
-            return;
-          }
-
-          if (!didRestoreInitialPositionRef.current) {
-            return;
-          }
-
-          if (entry.target === leftSentinel && !leftLoadLockedRef.current) {
-            leftLoadLockedRef.current = true;
-            prependAnchorRef.current = {
-              width: calendarContainerRef.current?.scrollWidth ?? 0,
-              scrollLeft: scrollContainer.scrollLeft
-            };
-            setMonthRange((current) => ({
-              start: current.start - LOAD_MORE_MONTHS,
-              end: current.end
-            }));
-          }
-
-          if (entry.target === rightSentinel && !rightLoadLockedRef.current) {
-            rightLoadLockedRef.current = true;
-            setMonthRange((current) => ({
-              start: current.start,
-              end: current.end + LOAD_MORE_MONTHS
-            }));
-          }
-        });
-      },
-      {
-        root: scrollContainer,
-        rootMargin: "0px 800px",
-        threshold: 0
+    return () => {
+      if (wheelLockTimeoutRef.current) {
+        clearTimeout(wheelLockTimeoutRef.current);
       }
-    );
-
-    observer.observe(leftSentinel);
-    observer.observe(rightSentinel);
-
-    return () => observer.disconnect();
-  }, []);
-
-  useEffect(() => {
-    const scrollContainer = horizontalScrollRef.current;
-    if (!scrollContainer) {
-      return;
-    }
-
-    const handleWheel = (event: WheelEvent) => {
-      if (!event.shiftKey || Math.abs(event.deltaY) <= Math.abs(event.deltaX)) {
-        return;
-      }
-
-      event.preventDefault();
-      scrollContainer.scrollLeft += event.deltaY;
     };
-
-    scrollContainer.addEventListener("wheel", handleWheel, { passive: false });
-    return () => scrollContainer.removeEventListener("wheel", handleWheel);
   }, []);
 
-  useEffect(() => {
-    const anchor = prependAnchorRef.current;
-    if (!anchor) {
-      const pendingMonthKey = pendingScrollMonthKeyRef.current;
-      if (!pendingMonthKey) {
-        return;
-      }
-
-      const targetSection = monthRefs.current[pendingMonthKey];
-      if (targetSection) {
-        scrollSectionIntoView(targetSection, "smooth");
-      }
-      if (pendingScrollDateKeyRef.current) {
-        requestAnimationFrame(() => {
-          if (pendingScrollDateKeyRef.current && scrollDayIntoView(pendingScrollDateKeyRef.current)) {
-            pendingScrollDateKeyRef.current = null;
-          }
-        });
-      }
-      pendingScrollMonthKeyRef.current = null;
-      return;
-    }
-
-    const nextWidth = calendarContainerRef.current?.scrollWidth ?? 0;
-    const widthDelta = nextWidth - anchor.width;
-    if (widthDelta !== 0 && horizontalScrollRef.current) {
-      horizontalScrollRef.current.scrollLeft = anchor.scrollLeft + widthDelta;
-    }
-    prependAnchorRef.current = null;
-  }, [monthSections]);
-
-  useEffect(() => {
-    const sections = monthSections
-      .map((section) => monthRefs.current[section.key])
-      .filter((section): section is HTMLElement => Boolean(section));
-    if (!sections.length) {
-      return;
-    }
-
-    const observer = new IntersectionObserver(
-      (entries) => {
-        const visibleEntries = entries
-          .filter((entry) => entry.isIntersecting)
-          .sort((left, right) => right.intersectionRatio - left.intersectionRatio);
-        if (!visibleEntries.length) {
-          return;
-        }
-
-        const monthKey = visibleEntries[0].target.getAttribute("data-month-key");
-        if (monthKey) {
-          setActiveMonthKey(monthKey);
-          latestVisibleDateRef.current = `${monthKey}-01`;
-        }
-      },
-      {
-        root: horizontalScrollRef.current,
-        rootMargin: "0px -55% 0px -15%",
-        threshold: [0.2, 0.4, 0.6]
-      }
-    );
-
-    sections.forEach((section) => observer.observe(section));
-
-    return () => observer.disconnect();
-  }, [monthSections]);
-
-  const scrollToMonth = (month: Date) => {
-    const monthKey = format(startOfMonth(month), "yyyy-MM");
-    const section = monthRefs.current[monthKey];
-    if (section) {
-      scrollSectionIntoView(section, "smooth");
-      return;
-    }
-
+  const ensureMonthInRange = (month: Date) => {
     const monthOffset =
       (month.getFullYear() - anchorMonth.getFullYear()) * 12 + (month.getMonth() - anchorMonth.getMonth());
-    pendingScrollMonthKeyRef.current = monthKey;
-    setMonthRange((current) => ({
-      start: Math.min(current.start, monthOffset),
-      end: Math.max(current.end, monthOffset)
-    }));
-    setActiveMonthKey(monthKey);
+    setMonthRange((current) => {
+      const nextStart = monthOffset <= current.start + 1 ? Math.min(current.start, monthOffset - LOAD_MORE_MONTHS) : current.start;
+      const nextEnd = monthOffset >= current.end - 1 ? Math.max(current.end, monthOffset + LOAD_MORE_MONTHS) : current.end;
+      return nextStart === current.start && nextEnd === current.end ? current : { start: nextStart, end: nextEnd };
+    });
+  };
+
+  const setVisibleMonth = (month: Date, focusDate?: string) => {
+    const nextMonth = startOfMonth(month);
+    ensureMonthInRange(nextMonth);
+    setActiveMonth(nextMonth);
+    latestVisibleDateRef.current = focusDate ?? format(nextMonth, "yyyy-MM-dd");
+  };
+
+  const navigateMonth = (direction: -1 | 1) => {
+    const nextMonth = addMonths(activeMonth, direction);
+    setVisibleMonth(nextMonth);
+  };
+
+  const handleCalendarWheel = (event: React.WheelEvent<HTMLDivElement>) => {
+    const dominantDelta = Math.abs(event.deltaX) > Math.abs(event.deltaY) ? event.deltaX : event.deltaY;
+    if (Math.abs(dominantDelta) < WHEEL_NAVIGATION_THRESHOLD) {
+      event.preventDefault();
+      return;
+    }
+
+    event.preventDefault();
+    if (wheelLockRef.current) {
+      return;
+    }
+
+    wheelLockRef.current = true;
+    navigateMonth(dominantDelta > 0 ? 1 : -1);
+    wheelLockTimeoutRef.current = setTimeout(() => {
+      wheelLockRef.current = false;
+    }, WHEEL_NAVIGATION_LOCK_MS);
+  };
+
+  const scrollToMonth = (month: Date) => {
+    setVisibleMonth(month);
   };
 
   const renderTaskCard = (task: Task) => {
@@ -412,7 +263,7 @@ export function TasksCalendar({
   };
 
   return (
-    <Card className="space-y-4 overflow-hidden p-0">
+    <Card className="flex h-[calc(100dvh-11.5rem)] min-h-[520px] flex-col overflow-hidden p-0 max-sm:h-auto max-sm:min-h-0">
       <div className="sticky top-0 z-20 flex flex-col gap-3 border-b border-slate-100 bg-white/95 p-4 backdrop-blur md:flex-row md:items-center md:justify-between">
         <div>
           <h2 className="text-lg font-semibold text-slate-950">{title}</h2>
@@ -434,23 +285,23 @@ export function TasksCalendar({
         </div>
       </div>
       <div
-        ref={horizontalScrollRef}
-        className="overflow-x-auto overscroll-x-contain scroll-smooth px-4 pb-4 [scrollbar-gutter:stable] [touch-action:pan-x_pan-y]"
+        className="min-h-0 flex-1 overflow-hidden px-4 pb-4 [touch-action:pan-x_pan-y] max-sm:overflow-x-hidden max-sm:overflow-y-visible"
+        onWheel={handleCalendarWheel}
       >
-        <div ref={calendarContainerRef} className="flex w-max gap-4">
-          <div ref={leftSentinelRef} aria-hidden="true" className="w-px shrink-0" />
+        <div
+          className="flex h-full transition-transform duration-500 ease-out will-change-transform max-sm:h-auto"
+          style={{ width: monthTrackWidth, transform: `translateX(-${monthTrackOffset})` }}
+        >
           {monthSections.map((section) => (
             <section
               key={section.key}
               data-month-key={section.key}
-              ref={(element) => {
-                monthRefs.current[section.key] = element;
-              }}
-              className="w-[min(92vw,1120px)] shrink-0 space-y-4 rounded-[20px] border border-slate-100 bg-white/90 p-3 sm:w-[min(86vw,1180px)] sm:p-4"
+              style={{ flexBasis: monthSlideWidth }}
+              className="flex h-full w-full shrink-0 flex-col space-y-3 rounded-[20px] border border-slate-100 bg-white/90 p-3 sm:p-4 max-sm:h-auto"
             >
               <div className="rounded-2xl bg-white/95 px-1 py-2">
-              <h3 className="text-base font-semibold text-slate-950 sm:text-lg">{section.monthLabel}</h3>
-            </div>
+                <h3 className="text-base font-semibold text-slate-950 sm:text-lg">{section.monthLabel}</h3>
+              </div>
 
             <div className="space-y-4 sm:hidden">
               {section.mobileAgenda.length ? (
@@ -474,8 +325,8 @@ export function TasksCalendar({
               )}
             </div>
 
-            <div className="hidden overflow-x-auto sm:block">
-              <div className="min-w-[840px]">
+            <div className="hidden min-h-0 flex-1 sm:block">
+              <div className="grid h-full min-w-0 grid-rows-[auto_1fr] overflow-hidden">
                 <div className="grid grid-cols-7 border-b border-slate-100">
                   {weekdayLabels.map((label) => (
                     <div key={`${section.key}-${label}`} className="px-3 py-3 text-center text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
@@ -483,9 +334,9 @@ export function TasksCalendar({
                     </div>
                   ))}
                 </div>
-                <div className="space-y-0">
+                <div className="grid min-h-0 grid-rows-6">
                   {section.weeks.map((week, weekIndex) => (
-                    <div key={`${section.key}-week-${weekIndex}`} className="grid grid-cols-7">
+                    <div key={`${section.key}-week-${weekIndex}`} className="grid min-h-0 grid-cols-7">
                       {week.map((day) => {
                         const dayTasks = tasksByDueDate.get(format(day, "yyyy-MM-dd")) ?? [];
                         const inVisibleMonth = isSameMonth(day, section.month);
@@ -499,7 +350,8 @@ export function TasksCalendar({
                                 dayRefs.current[format(day, "yyyy-MM-dd")] = element;
                               }
                             }}
-                            className={`min-h-[160px] border-b border-r border-slate-100 p-3 align-top ${
+                            tabIndex={inVisibleMonth ? -1 : undefined}
+                            className={`min-h-0 overflow-hidden border-b border-r border-slate-100 p-2 align-top lg:p-3 ${
                               inVisibleMonth ? "bg-white" : "bg-slate-50/70"
                             }`}
                           >
@@ -512,7 +364,8 @@ export function TasksCalendar({
                                 {format(day, "d")}
                               </span>
                             </div>
-                            <div className="mt-3 space-y-2">{dayTasks.map((task) => renderTaskCard(task))}</div>
+                            <div className="mt-2 space-y-1.5 overflow-hidden">{dayTasks.slice(0, 3).map((task) => renderTaskCard(task))}</div>
+                            {dayTasks.length > 3 ? <p className="mt-1 text-xs font-medium text-slate-500">+{dayTasks.length - 3} more</p> : null}
                           </div>
                         );
                       })}
@@ -523,7 +376,6 @@ export function TasksCalendar({
             </div>
             </section>
           ))}
-          <div ref={rightSentinelRef} aria-hidden="true" className="w-px shrink-0" />
         </div>
       </div>
     </Card>
