@@ -236,8 +236,8 @@ export function TaskFormModal({
 
     if (pathname === "/calendar") {
       // Calendar saves must carry a stable date anchor forward so the calendar can restore
-      // the edited task's visible month/day instead of falling back to route-level defaults.
-      const calendarDate = savedTask?.due_date ?? savedTask?.start_date ?? calendarContextDate;
+      // the visible month/day instead of jumping to a changed task date or route fallback.
+      const calendarDate = calendarContextDate ?? savedTask?.due_date ?? savedTask?.start_date;
       if (calendarDate) {
         params.set("calendarDate", calendarDate);
       } else {

@@ -64,14 +64,15 @@ export function TasksCalendar({
   const monthRefs = useRef<Record<string, HTMLElement | null>>({});
   const dayRefs = useRef<Record<string, HTMLElement | null>>({});
   const scrollRootRef = useRef<HTMLElement | null>(null);
-  const topSentinelRef = useRef<HTMLDivElement | null>(null);
-  const bottomSentinelRef = useRef<HTMLDivElement | null>(null);
+  const leftSentinelRef = useRef<HTMLDivElement | null>(null);
+  const rightSentinelRef = useRef<HTMLDivElement | null>(null);
   const calendarContainerRef = useRef<HTMLDivElement | null>(null);
-  const prependAnchorRef = useRef<{ height: number; scrollTop: number } | null>(null);
+  const horizontalScrollRef = useRef<HTMLDivElement | null>(null);
+  const prependAnchorRef = useRef<{ width: number; scrollLeft: number } | null>(null);
   const pendingScrollMonthKeyRef = useRef<string | null>(null);
   const pendingScrollDateKeyRef = useRef<string | null>(initialFocusDate ? initialAnchorDateKey : null);
-  const topLoadLockedRef = useRef(false);
-  const bottomLoadLockedRef = useRef(false);
+  const leftLoadLockedRef = useRef(false);
+  const rightLoadLockedRef = useRef(false);
   const latestVisibleDateRef = useRef(initialFocusDate ?? initialAnchorDateKey);
 
   const tasksByDueDate = useMemo(() => {
@@ -151,16 +152,16 @@ export function TasksCalendar({
   }, []);
 
   const scrollSectionIntoView = (section: HTMLElement, behavior: ScrollBehavior = "auto") => {
-    const scrollRoot = scrollRootRef.current;
-    if (!scrollRoot) {
-      section.scrollIntoView({ behavior, block: "start" });
+    const scrollContainer = horizontalScrollRef.current;
+    if (!scrollContainer) {
+      section.scrollIntoView({ behavior, block: "nearest", inline: "start" });
       return;
     }
 
-    const rootRect = scrollRoot.getBoundingClientRect();
+    const rootRect = scrollContainer.getBoundingClientRect();
     const sectionRect = section.getBoundingClientRect();
-    const nextTop = scrollRoot.scrollTop + (sectionRect.top - rootRect.top) - 12;
-    scrollRoot.scrollTo({ top: Math.max(0, nextTop), behavior });
+    const nextLeft = scrollContainer.scrollLeft + (sectionRect.left - rootRect.left) - 12;
+    scrollContainer.scrollTo({ left: Math.max(0, nextLeft), behavior });
   };
 
   const scrollDayIntoView = (dateKey: string, behavior: ScrollBehavior = "smooth") => {
@@ -169,16 +170,16 @@ export function TasksCalendar({
       return false;
     }
 
-    const scrollRoot = scrollRootRef.current;
-    if (!scrollRoot) {
-      dayElement.scrollIntoView({ behavior, block: "center" });
+    const scrollContainer = horizontalScrollRef.current;
+    if (!scrollContainer) {
+      dayElement.scrollIntoView({ behavior, block: "nearest", inline: "center" });
       return true;
     }
 
-    const rootRect = scrollRoot.getBoundingClientRect();
+    const rootRect = scrollContainer.getBoundingClientRect();
     const dayRect = dayElement.getBoundingClientRect();
-    const nextTop = scrollRoot.scrollTop + (dayRect.top - rootRect.top) - Math.max(24, rootRect.height * 0.2);
-    scrollRoot.scrollTo({ top: Math.max(0, nextTop), behavior });
+    const nextLeft = scrollContainer.scrollLeft + (dayRect.left - rootRect.left) - Math.max(24, rootRect.width * 0.2);
+    scrollContainer.scrollTo({ left: Math.max(0, nextLeft), behavior });
     return true;
   };
 
@@ -210,9 +211,10 @@ export function TasksCalendar({
   }, [anchorMonth, monthSections]);
 
   useEffect(() => {
-    const topSentinel = topSentinelRef.current;
-    const bottomSentinel = bottomSentinelRef.current;
-    if (!topSentinel || !bottomSentinel) {
+    const scrollContainer = horizontalScrollRef.current;
+    const leftSentinel = leftSentinelRef.current;
+    const rightSentinel = rightSentinelRef.current;
+    if (!scrollContainer || !leftSentinel || !rightSentinel) {
       return;
     }
 
@@ -220,11 +222,11 @@ export function TasksCalendar({
       (entries) => {
         entries.forEach((entry) => {
           if (!entry.isIntersecting) {
-            if (entry.target === topSentinel) {
-              topLoadLockedRef.current = false;
+            if (entry.target === leftSentinel) {
+              leftLoadLockedRef.current = false;
             }
-            if (entry.target === bottomSentinel) {
-              bottomLoadLockedRef.current = false;
+            if (entry.target === rightSentinel) {
+              rightLoadLockedRef.current = false;
             }
             return;
           }
@@ -233,11 +235,11 @@ export function TasksCalendar({
             return;
           }
 
-          if (entry.target === topSentinel && !topLoadLockedRef.current) {
-            topLoadLockedRef.current = true;
+          if (entry.target === leftSentinel && !leftLoadLockedRef.current) {
+            leftLoadLockedRef.current = true;
             prependAnchorRef.current = {
-              height: calendarContainerRef.current?.offsetHeight ?? 0,
-              scrollTop: scrollRootRef.current?.scrollTop ?? 0
+              width: calendarContainerRef.current?.scrollWidth ?? 0,
+              scrollLeft: scrollContainer.scrollLeft
             };
             setMonthRange((current) => ({
               start: current.start - LOAD_MORE_MONTHS,
@@ -245,8 +247,8 @@ export function TasksCalendar({
             }));
           }
 
-          if (entry.target === bottomSentinel && !bottomLoadLockedRef.current) {
-            bottomLoadLockedRef.current = true;
+          if (entry.target === rightSentinel && !rightLoadLockedRef.current) {
+            rightLoadLockedRef.current = true;
             setMonthRange((current) => ({
               start: current.start,
               end: current.end + LOAD_MORE_MONTHS
@@ -255,16 +257,35 @@ export function TasksCalendar({
         });
       },
       {
-        root: scrollRootRef.current,
-        rootMargin: "400px 0px",
+        root: scrollContainer,
+        rootMargin: "0px 800px",
         threshold: 0
       }
     );
 
-    observer.observe(topSentinel);
-    observer.observe(bottomSentinel);
+    observer.observe(leftSentinel);
+    observer.observe(rightSentinel);
 
     return () => observer.disconnect();
+  }, []);
+
+  useEffect(() => {
+    const scrollContainer = horizontalScrollRef.current;
+    if (!scrollContainer) {
+      return;
+    }
+
+    const handleWheel = (event: WheelEvent) => {
+      if (!event.shiftKey || Math.abs(event.deltaY) <= Math.abs(event.deltaX)) {
+        return;
+      }
+
+      event.preventDefault();
+      scrollContainer.scrollLeft += event.deltaY;
+    };
+
+    scrollContainer.addEventListener("wheel", handleWheel, { passive: false });
+    return () => scrollContainer.removeEventListener("wheel", handleWheel);
   }, []);
 
   useEffect(() => {
@@ -290,10 +311,10 @@ export function TasksCalendar({
       return;
     }
 
-    const nextHeight = calendarContainerRef.current?.offsetHeight ?? 0;
-    const heightDelta = nextHeight - anchor.height;
-    if (heightDelta !== 0 && scrollRootRef.current) {
-      scrollRootRef.current.scrollTop = anchor.scrollTop + heightDelta;
+    const nextWidth = calendarContainerRef.current?.scrollWidth ?? 0;
+    const widthDelta = nextWidth - anchor.width;
+    if (widthDelta !== 0 && horizontalScrollRef.current) {
+      horizontalScrollRef.current.scrollLeft = anchor.scrollLeft + widthDelta;
     }
     prependAnchorRef.current = null;
   }, [monthSections]);
@@ -322,8 +343,8 @@ export function TasksCalendar({
         }
       },
       {
-        root: scrollRootRef.current,
-        rootMargin: "-15% 0px -55% 0px",
+        root: horizontalScrollRef.current,
+        rootMargin: "0px -55% 0px -15%",
         threshold: [0.2, 0.4, 0.6]
       }
     );
@@ -365,7 +386,7 @@ export function TasksCalendar({
         task={task}
         initialMode="view"
         redirectPath={redirectPath}
-        calendarContextDate={task.due_date ?? task.start_date ?? latestVisibleDateRef.current}
+        calendarContextDate={latestVisibleDateRef.current}
         triggerVariant="ghost"
         triggerSize="sm"
         triggerAriaLabel={`Task Details for ${task.title}`}
@@ -391,8 +412,8 @@ export function TasksCalendar({
   };
 
   return (
-    <Card className="space-y-4">
-      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+    <Card className="space-y-4 overflow-hidden p-0">
+      <div className="sticky top-0 z-20 flex flex-col gap-3 border-b border-slate-100 bg-white/95 p-4 backdrop-blur md:flex-row md:items-center md:justify-between">
         <div>
           <h2 className="text-lg font-semibold text-slate-950">{title}</h2>
           <p className="text-sm text-slate-500">{description.replace("standard monthly calendar", "continuous monthly calendar")}</p>
@@ -412,18 +433,22 @@ export function TasksCalendar({
           </Button>
         </div>
       </div>
-      <div ref={calendarContainerRef} className="space-y-6">
-        <div ref={topSentinelRef} aria-hidden="true" className="h-px w-full" />
-        {monthSections.map((section) => (
-          <section
-            key={section.key}
-            data-month-key={section.key}
-            ref={(element) => {
-              monthRefs.current[section.key] = element;
-            }}
-            className="space-y-4 rounded-[28px] border border-slate-100 bg-white/90 p-3 sm:p-4"
-          >
-            <div className="sticky top-0 z-10 -mx-1 rounded-2xl bg-white/95 px-1 py-2 backdrop-blur">
+      <div
+        ref={horizontalScrollRef}
+        className="overflow-x-auto overscroll-x-contain scroll-smooth px-4 pb-4 [scrollbar-gutter:stable] [touch-action:pan-x_pan-y]"
+      >
+        <div ref={calendarContainerRef} className="flex w-max gap-4">
+          <div ref={leftSentinelRef} aria-hidden="true" className="w-px shrink-0" />
+          {monthSections.map((section) => (
+            <section
+              key={section.key}
+              data-month-key={section.key}
+              ref={(element) => {
+                monthRefs.current[section.key] = element;
+              }}
+              className="w-[min(92vw,1120px)] shrink-0 space-y-4 rounded-[20px] border border-slate-100 bg-white/90 p-3 sm:w-[min(86vw,1180px)] sm:p-4"
+            >
+              <div className="rounded-2xl bg-white/95 px-1 py-2">
               <h3 className="text-base font-semibold text-slate-950 sm:text-lg">{section.monthLabel}</h3>
             </div>
 
@@ -496,9 +521,10 @@ export function TasksCalendar({
                 </div>
               </div>
             </div>
-          </section>
-        ))}
-        <div ref={bottomSentinelRef} aria-hidden="true" className="h-px w-full" />
+            </section>
+          ))}
+          <div ref={rightSentinelRef} aria-hidden="true" className="w-px shrink-0" />
+        </div>
       </div>
     </Card>
   );
