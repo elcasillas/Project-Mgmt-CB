@@ -16,7 +16,7 @@ export default async function LoginPage({
     <AuthShell
       title="Sign in"
       heroTitle="Project Execution Platform"
-      showMobileLogo
+      showLogo
     >
       <form action={loginAction} className="space-y-5">
         <FormField label="Email" htmlFor="email">
