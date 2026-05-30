@@ -1,4 +1,3 @@
-import { PageHeader } from "@/components/shared/page-header";
 import { TasksView } from "@/components/tasks/tasks-view";
 import { Card } from "@/components/ui/card";
 import { getProjects, getTaskAttachments, getTasks, getTeamMembers } from "@/lib/data/queries";
@@ -14,12 +13,7 @@ export default async function CalendarPage({
   const profiles = teamMembers.map(({ activeProjects, assignedTasks, workloadSummary, ...profile }) => profile);
 
   return (
-    <div className="space-y-8">
-      <PageHeader
-        eyebrow="Execution Calendar"
-        title="Calendar"
-        description="Review task timing by date and open work details directly from the monthly schedule."
-      />
+    <div className="space-y-4">
       {params.error ? (
         <Card className="border-rose-200 bg-rose-50 text-rose-800">
           <p className="text-sm font-medium">{params.error}</p>

@@ -84,62 +84,64 @@ export function TasksView({
 
   return (
     <div className="space-y-6">
-      <div className={`flex flex-col gap-3 ${showFilters ? "lg:flex-row lg:items-center lg:justify-between" : "sm:flex-row sm:items-center sm:justify-end"}`}>
-        {showFilters ? (
-          <div className="grid flex-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
-            <Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search tasks, projects, and descriptions" />
-            <Select value={status} onChange={(event) => setStatus(event.target.value)}>
-              <option>All</option>
-              <option>Not Started</option>
-              <option>In Progress</option>
-              <option>Blocked</option>
-              <option>In Review</option>
-              <option>Done</option>
-            </Select>
-            <Select value={priority} onChange={(event) => setPriority(event.target.value)}>
-              <option>All</option>
-              <option>Low</option>
-              <option>Medium</option>
-              <option>High</option>
-              <option>Urgent</option>
-            </Select>
-            <Select value={assignee} onChange={(event) => setAssignee(event.target.value)}>
-              <option value="All">All assignees</option>
-              {profiles.map((profile) => (
-                <option key={profile.id} value={profile.id}>
-                  {profile.full_name}
-                </option>
-              ))}
-            </Select>
-            <Select value={project} onChange={(event) => setProject(event.target.value)}>
-              <option value="All">All projects</option>
-              {projects.map((currentProject) => (
-                <option key={currentProject.id} value={currentProject.id}>
-                  {currentProject.name}
-                </option>
-              ))}
-            </Select>
-            <Select value={dueWindow} onChange={(event) => setDueWindow(event.target.value)}>
-              <option>All</option>
-              <option>Overdue</option>
-              <option>This Week</option>
-              <option>No Due Date</option>
-            </Select>
-          </div>
-        ) : null}
-        <div className="flex flex-wrap gap-2 max-sm:[&>*]:flex-1">
-          {showViewSwitcher
-            ? availableViews.map((mode) => (
-                <Button key={mode} variant={view === mode ? "primary" : "secondary"} size="sm" onClick={() => setView(mode)} className="min-w-[96px]">
-                  {mode[0].toUpperCase() + mode.slice(1)}
-                </Button>
-              ))
-            : null}
-          {showCreateTask ? (
-            <TaskFormModal profiles={profiles} projects={projects} availableTasks={tasks} redirectPath="/tasks" triggerSize="sm" />
+      {showFilters || showViewSwitcher || showCreateTask ? (
+        <div className={`flex flex-col gap-3 ${showFilters ? "lg:flex-row lg:items-center lg:justify-between" : "sm:flex-row sm:items-center sm:justify-end"}`}>
+          {showFilters ? (
+            <div className="grid flex-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
+              <Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search tasks, projects, and descriptions" />
+              <Select value={status} onChange={(event) => setStatus(event.target.value)}>
+                <option>All</option>
+                <option>Not Started</option>
+                <option>In Progress</option>
+                <option>Blocked</option>
+                <option>In Review</option>
+                <option>Done</option>
+              </Select>
+              <Select value={priority} onChange={(event) => setPriority(event.target.value)}>
+                <option>All</option>
+                <option>Low</option>
+                <option>Medium</option>
+                <option>High</option>
+                <option>Urgent</option>
+              </Select>
+              <Select value={assignee} onChange={(event) => setAssignee(event.target.value)}>
+                <option value="All">All assignees</option>
+                {profiles.map((profile) => (
+                  <option key={profile.id} value={profile.id}>
+                    {profile.full_name}
+                  </option>
+                ))}
+              </Select>
+              <Select value={project} onChange={(event) => setProject(event.target.value)}>
+                <option value="All">All projects</option>
+                {projects.map((currentProject) => (
+                  <option key={currentProject.id} value={currentProject.id}>
+                    {currentProject.name}
+                  </option>
+                ))}
+              </Select>
+              <Select value={dueWindow} onChange={(event) => setDueWindow(event.target.value)}>
+                <option>All</option>
+                <option>Overdue</option>
+                <option>This Week</option>
+                <option>No Due Date</option>
+              </Select>
+            </div>
           ) : null}
+          <div className="flex flex-wrap gap-2 max-sm:[&>*]:flex-1">
+            {showViewSwitcher
+              ? availableViews.map((mode) => (
+                  <Button key={mode} variant={view === mode ? "primary" : "secondary"} size="sm" onClick={() => setView(mode)} className="min-w-[96px]">
+                    {mode[0].toUpperCase() + mode.slice(1)}
+                  </Button>
+                ))
+              : null}
+            {showCreateTask ? (
+              <TaskFormModal profiles={profiles} projects={projects} availableTasks={tasks} redirectPath="/tasks" triggerSize="sm" />
+            ) : null}
+          </div>
         </div>
-      </div>
+      ) : null}
 
       {view === "table" ? (
         <TaskTable
