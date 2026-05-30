@@ -5,8 +5,6 @@ import {
   addDays,
   addMonths,
   eachDayOfInterval,
-  endOfMonth,
-  endOfWeek,
   format,
   isSameMonth,
   isToday,
@@ -89,12 +87,8 @@ export function TasksCalendar({
       const month = addMonths(anchorMonth, offset);
       const calendarDays = eachDayOfInterval({
         start: startOfWeek(startOfMonth(month), { weekStartsOn: 0 }),
-        end: endOfWeek(endOfMonth(month), { weekStartsOn: 0 })
+        end: addDays(startOfWeek(startOfMonth(month), { weekStartsOn: 0 }), 34)
       });
-
-      while (calendarDays.length < 42) {
-        calendarDays.push(addDays(calendarDays[calendarDays.length - 1], 1));
-      }
 
       const weeks: Date[][] = [];
 
@@ -252,7 +246,7 @@ export function TasksCalendar({
         triggerSize="sm"
         triggerAriaLabel={`Task Details for ${task.title}`}
         triggerTitle="Task Details"
-        triggerClassName="h-auto w-full cursor-pointer justify-start rounded-xl border px-2.5 py-2 text-left shadow-sm transition-[filter,box-shadow,transform] hover:brightness-95 hover:shadow-md"
+        triggerClassName="h-auto w-full cursor-pointer justify-start rounded-lg border px-2 py-1.5 text-left shadow-sm transition-[filter,box-shadow,transform] hover:brightness-95 hover:shadow-md"
         triggerStyle={{
           backgroundColor: tone.background,
           borderColor,
@@ -294,35 +288,32 @@ export function TasksCalendar({
               style={{ flexBasis: monthSlideWidth }}
               className="flex h-full w-full shrink-0 flex-col space-y-2 rounded-[20px] border border-slate-100 bg-white/90 p-2.5 sm:p-3 max-sm:h-auto"
             >
-              <div className="px-1 pt-1">
-                <h3 className="text-sm font-semibold text-slate-950 sm:text-base">{section.monthLabel}</h3>
-              </div>
-
               <div className="space-y-3 sm:hidden">
                 {section.mobileAgenda.length ? (
                   section.mobileAgenda.map(([date, dayTasks]) => {
-                    const previewTasks = dayTasks.slice(0, DAY_TASK_PREVIEW_LIMIT);
-                    const hiddenCount = dayTasks.length - previewTasks.length;
+                    const visibleTasks = dayTasks.slice(0, DAY_TASK_PREVIEW_LIMIT);
+                    const hiddenTasks = dayTasks.slice(DAY_TASK_PREVIEW_LIMIT);
+                    const hiddenCount = hiddenTasks.length;
 
                     return (
-                      <div key={date} className="rounded-2xl border border-slate-100 bg-slate-50/70 p-3">
+                      <div key={date} className="rounded-2xl border border-slate-100 bg-slate-50/70 p-2.5">
                         <p
                           ref={(element) => {
                             dayRefs.current[date] = element;
                           }}
                           tabIndex={-1}
-                          className="text-sm font-semibold text-slate-900"
+                          className="text-[12px] font-semibold text-slate-900"
                         >
                           {format(new Date(`${date}T00:00:00`), "EEEE, MMM d")}
                         </p>
-                        <div className="mt-2 space-y-1.5">
-                          {previewTasks.map((task) => renderTaskCard(task, date))}
+                        <div className="mt-1.5 space-y-1">
+                          {visibleTasks.map((task) => renderTaskCard(task, date))}
                           {hiddenCount > 0 ? (
                             <Button
                               type="button"
                               variant="ghost"
                               size="sm"
-                              className="h-auto w-auto justify-start rounded-md px-1 py-0 text-[11px] font-medium text-slate-500 hover:bg-transparent hover:text-slate-700"
+                              className="h-auto w-auto justify-start rounded-md px-0 py-0 text-[11px] font-medium text-slate-500 hover:bg-transparent hover:text-slate-700 hover:underline"
                               onClick={() => openDayDetails(date)}
                             >
                               +{hiddenCount} more
@@ -348,14 +339,15 @@ export function TasksCalendar({
                       </div>
                     ))}
                   </div>
-                  <div className="grid min-h-0 grid-rows-6">
+                  <div className="grid min-h-0 grid-rows-5">
                     {section.weeks.map((week, weekIndex) => (
                       <div key={`${section.key}-week-${weekIndex}`} className="grid min-h-0 grid-cols-7">
                         {week.map((day) => {
                           const dayKey = format(day, "yyyy-MM-dd");
                           const dayTasks = tasksByDueDate.get(dayKey) ?? [];
-                          const previewTasks = dayTasks.slice(0, DAY_TASK_PREVIEW_LIMIT);
-                          const hiddenCount = dayTasks.length - previewTasks.length;
+                          const visibleTasks = dayTasks.slice(0, DAY_TASK_PREVIEW_LIMIT);
+                          const hiddenTasks = dayTasks.slice(DAY_TASK_PREVIEW_LIMIT);
+                          const hiddenCount = hiddenTasks.length;
                           const inVisibleMonth = isSameMonth(day, section.month);
                           const isCurrentDay = isToday(day);
 
@@ -374,22 +366,22 @@ export function TasksCalendar({
                             >
                               <div className="flex items-center justify-between">
                                 <span
-                                  className={`inline-flex h-7 w-7 items-center justify-center rounded-full text-[11px] font-semibold ${
+                                  className={`inline-flex h-6 w-6 items-center justify-center rounded-full text-[11px] font-semibold ${
                                     isCurrentDay ? "bg-[#0071e3] text-white" : inVisibleMonth ? "text-slate-900" : "text-slate-400"
                                   }`}
                                 >
                                   {format(day, "d")}
                                 </span>
                               </div>
-                              <div className="mt-1 space-y-1 overflow-hidden">
-                                {previewTasks.map((task) => renderTaskCard(task, dayKey))}
+                              <div className="mt-1 space-y-0.5 overflow-hidden">
+                                {visibleTasks.map((task) => renderTaskCard(task, dayKey))}
                               </div>
                               {hiddenCount > 0 ? (
                                 <Button
                                   type="button"
                                   variant="ghost"
                                   size="sm"
-                                  className="mt-1 h-auto w-auto justify-start rounded-md px-0.5 py-0 text-[11px] font-medium text-slate-500 hover:bg-transparent hover:text-slate-700"
+                                  className="mt-0.5 h-auto w-auto justify-start rounded-md px-0 py-0 text-[11px] font-medium text-slate-500 hover:bg-transparent hover:text-slate-700 hover:underline"
                                   onClick={() => openDayDetails(dayKey)}
                                 >
                                   +{hiddenCount} more
@@ -412,9 +404,9 @@ export function TasksCalendar({
         onClose={closeDayDetails}
         title={selectedDayLabel}
         description="All tasks due on this date."
-        panelClassName="max-w-2xl"
+        panelClassName="max-w-sm"
       >
-        <div className="space-y-3">
+        <div className="space-y-2">
           {selectedDayTasks.length ? (
             selectedDayTasks.map((task) => (
               <TaskFormModal
@@ -430,7 +422,7 @@ export function TasksCalendar({
                 triggerSize="sm"
                 triggerAriaLabel={`Task Details for ${task.title}`}
                 triggerTitle="Task Details"
-                triggerClassName="h-auto w-full justify-start rounded-2xl border border-slate-100 bg-white px-3 py-3 text-left shadow-sm hover:bg-slate-50"
+                triggerClassName="h-auto w-full justify-start rounded-xl border border-slate-100 bg-white px-3 py-2.5 text-left shadow-sm hover:bg-slate-50"
                 triggerLabel={
                   <div className="min-w-0">
                     <span className="block truncate text-sm font-medium leading-tight text-slate-950">{task.title}</span>
