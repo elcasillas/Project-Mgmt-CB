@@ -1,5 +1,5 @@
-import Image from "next/image";
 import Link from "next/link";
+import { BrandLogo } from "@/components/shared/brand-logo";
 import { APP_NAME } from "@/lib/data/constants";
 
 export function AuthShell({
@@ -21,7 +21,7 @@ export function AuthShell({
     <div className="flex min-h-screen bg-slate-950 text-white">
       <div className="hidden flex-1 flex-col justify-between bg-[radial-gradient(circle_at_top_left,_rgba(14,165,233,0.35),_transparent_35%),linear-gradient(180deg,_#020617_0%,_#0f172a_100%)] p-12 lg:flex">
         <div>
-          <Image src="/casibros-white.png" alt="Casibros" width={4775} height={1842} className="h-auto w-[180px]" priority />
+          <BrandLogo alt="Casibros" width={4775} height={1842} className="h-auto w-[180px]" fallbackClassName="w-[180px]" />
           <h1 className="mt-8 max-w-md text-5xl font-semibold tracking-tight">{heroTitle}</h1>
           <p className="mt-4 max-w-lg text-base text-slate-300">Plan, Prioritize, and Deliver Work</p>
         </div>
@@ -39,7 +39,13 @@ export function AuthShell({
           <div className="mb-6 sm:mb-8">
             {showMobileLogo ? (
               <div className="mb-6 flex justify-center lg:hidden">
-                <Image src="/casibros-white.png" alt="Casibros" width={4775} height={1842} className="h-12 w-auto invert sm:h-14" priority />
+                <BrandLogo
+                  alt="Casibros"
+                  width={4775}
+                  height={1842}
+                  className="h-12 w-auto invert sm:h-14"
+                  fallbackClassName="text-sm sm:text-base"
+                />
               </div>
             ) : null}
             <Link href="/" className="text-xs font-semibold uppercase tracking-[0.24em] text-sky-600">
@@ -50,7 +56,13 @@ export function AuthShell({
           </div>
           {showLogo ? (
             <div className="mb-6 flex justify-center">
-              <Image src="/casibros-white.png" alt="Casibros" width={4775} height={1842} className="h-[66px] w-auto invert sm:h-[72px]" priority />
+              <BrandLogo
+                alt="Casibros"
+                width={4775}
+                height={1842}
+                className="h-[66px] w-auto invert sm:h-[72px]"
+                fallbackClassName="text-lg sm:text-xl"
+              />
             </div>
           ) : null}
           {children}
