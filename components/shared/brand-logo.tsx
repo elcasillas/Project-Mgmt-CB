@@ -1,6 +1,5 @@
 "use client";
 
-import Image from "next/image";
 import { useState } from "react";
 import { cn } from "@/lib/utils/cn";
 
@@ -32,15 +31,22 @@ export function BrandLogo({
   }
 
   return (
-    <Image
+    /* eslint-disable-next-line @next/next/no-img-element */
+    <img
       src={LOGO_SRC}
       alt={alt}
+      className={className}
       width={width}
       height={height}
-      className={className}
-      priority
-      unoptimized
-      onError={() => setFailed(true)}
+      loading="eager"
+      decoding="async"
+      onError={() => {
+        if (process.env.NODE_ENV !== "production") {
+          // Helps catch asset path regressions during local development.
+          console.warn(`Brand logo failed to load: ${LOGO_SRC}`);
+        }
+        setFailed(true);
+      }}
     />
   );
 }
