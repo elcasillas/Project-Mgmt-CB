@@ -4,7 +4,6 @@ import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Calendar, ChartNoAxesGantt, FolderKanban, LayoutGrid, ListTodo, Settings, ShieldUser, Users, X } from "lucide-react";
-import logo from "@/casibros-white.png";
 import { NAV_ITEMS } from "@/lib/data/constants";
 import { cn } from "@/lib/utils/cn";
 
@@ -72,7 +71,7 @@ export function Sidebar({
     <>
       <aside className="fixed inset-y-0 left-0 hidden w-[272px] shrink-0 flex-col border-r border-[rgba(255,255,255,0.08)] bg-[#000000] px-7 py-8 text-white lg:flex">
         <div className="mb-12 flex w-full justify-start">
-          <Image src={logo} alt="Casibros" className="h-auto w-full max-w-[216px]" priority />
+          <Image src="/casibros-white.png" alt="Casibros" width={4775} height={1842} className="h-auto w-full max-w-[216px]" priority />
         </div>
         <SidebarNav pathname={pathname} />
       </aside>
@@ -93,7 +92,7 @@ export function Sidebar({
         aria-hidden={!mobileOpen}
       >
         <div className="mb-8 flex items-center gap-4">
-          <Image src={logo} alt="Casibros" className="h-auto flex-1 w-full max-w-[180px]" priority />
+          <Image src="/casibros-white.png" alt="Casibros" width={4775} height={1842} className="h-auto flex-1 w-full max-w-[180px]" priority />
           <button
             type="button"
             className="inline-flex h-11 w-11 items-center justify-center rounded-full border border-white/12 bg-white/6 text-white"

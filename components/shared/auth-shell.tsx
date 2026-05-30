@@ -1,6 +1,5 @@
 import Image from "next/image";
 import Link from "next/link";
-import logo from "@/casibros-white.png";
 import { APP_NAME } from "@/lib/data/constants";
 
 export function AuthShell({
@@ -40,7 +39,7 @@ export function AuthShell({
           <div className="mb-6 sm:mb-8">
             {showMobileLogo ? (
               <div className="mb-6 flex justify-center lg:hidden">
-                <Image src={logo} alt="Casibros" className="h-12 w-auto invert sm:h-14" priority />
+                <Image src="/casibros-white.png" alt="Casibros" width={4775} height={1842} className="h-12 w-auto invert sm:h-14" priority />
               </div>
             ) : null}
             <Link href="/" className="text-xs font-semibold uppercase tracking-[0.24em] text-sky-600">
@@ -51,7 +50,7 @@ export function AuthShell({
           </div>
           {showLogo ? (
             <div className="mb-6 flex justify-center">
-              <Image src={logo} alt="Casibros" className="h-[66px] w-auto invert sm:h-[72px]" priority />
+              <Image src="/casibros-white.png" alt="Casibros" width={4775} height={1842} className="h-[66px] w-auto invert sm:h-[72px]" priority />
             </div>
           ) : null}
           {children}
